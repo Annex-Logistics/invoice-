@@ -12,6 +12,9 @@ import {
   Check,
   Trash2,
   Copy,
+  Mail,
+  Library,
+  Plus,
 } from "lucide-react";
 import type {
   Invoice,
@@ -22,11 +25,15 @@ import type {
 } from "@/lib/types";
 import { CURRENCIES, findCurrency, formatMoney } from "@/lib/currencies";
 import {
+  createId,
   duplicateInvoice,
+  loadItems,
   removeInvoice,
   saveBusiness,
   upsertInvoice,
+  upsertItem,
 } from "@/lib/storage";
+import { buildInvoiceMailto } from "@/lib/email";
 import { calcTotals } from "@/lib/totals";
 import { exportInvoicePdf } from "@/lib/pdf";
 import { LineItemsTable } from "./LineItemsTable";
@@ -109,6 +116,40 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
     if (copy) router.push(`/invoices/${copy.id}`);
   }
 
+  function handleEmail() {
+    const href = buildInvoiceMailto(invoice);
+    window.location.href = href;
+  }
+
+  function handleSaveToLibrary() {
+    const nonEmpty = invoice.items.filter((i) => i.description.trim() && Number(i.rate) > 0);
+    if (nonEmpty.length === 0) {
+      alert("Add at least one line item with a description and rate first.");
+      return;
+    }
+    nonEmpty.forEach((item) => {
+      upsertItem({ id: createId(), description: item.description.trim(), rate: Number(item.rate) });
+    });
+    alert(`Saved ${nonEmpty.length} item${nonEmpty.length === 1 ? "" : "s"} to your library.`);
+  }
+
+  function handleInsertFromLibrary() {
+    const library = loadItems();
+    if (library.length === 0) {
+      alert("Your item library is empty — save line items first from the quick actions.");
+      return;
+    }
+    const picks = library.slice(0, 10).map((it, i) => `${i + 1}. ${it.description} — ${it.rate}`).join("\n");
+    const choice = window.prompt(`Pick an item to add (1-${Math.min(10, library.length)}):\n${picks}`);
+    const idx = choice ? parseInt(choice, 10) - 1 : -1;
+    const item = library[idx];
+    if (!item) return;
+    setItems([
+      ...invoice.items,
+      { id: createId(), description: item.description, quantity: 1, rate: item.rate },
+    ]);
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:py-8">
       {/* Top bar */}
@@ -142,6 +183,9 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
           </button>
           <button className="btn-secondary" onClick={handleDownload}>
             <Download className="h-4 w-4" /> Download PDF
+          </button>
+          <button className="btn-secondary" onClick={handleEmail} disabled={!invoice.billTo.email}>
+            <Mail className="h-4 w-4" /> Email
           </button>
           <button className="btn-primary" onClick={handleMarkSent}>
             <Send className="h-4 w-4" /> Mark as sent
@@ -275,10 +319,26 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
 
           {/* Line items */}
           <section>
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-ink-900">Line items</h3>
-              <div className="flex items-center gap-2 text-xs text-ink-500">
-                <label htmlFor="currency" className="font-medium">Currency</label>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-ink-500">
+                <button
+                  type="button"
+                  className="btn-ghost !py-1 text-xs"
+                  onClick={handleInsertFromLibrary}
+                  title="Insert from your saved items library"
+                >
+                  <Library className="h-3.5 w-3.5" /> From library
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost !py-1 text-xs"
+                  onClick={handleSaveToLibrary}
+                  title="Save these line items to your library"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Save items
+                </button>
+                <label htmlFor="currency" className="ml-2 font-medium">Currency</label>
                 <select
                   id="currency"
                   className="field !w-auto !py-1.5 text-xs"

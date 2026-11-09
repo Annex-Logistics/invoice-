@@ -32,6 +32,23 @@ export type Business = {
   logoDataUrl?: string;
 };
 
+export type InvoicePrefs = {
+  numberPrefix: string;
+  nextNumber: number;
+  numberPadding: number;
+  defaultTerms: string;
+  defaultTaxLabel: string;
+  defaultTaxPercent: number;
+  defaultCurrencyCode: string;
+  defaultDueDays: number;
+};
+
+export type SavedItem = {
+  id: string;
+  description: string;
+  rate: number;
+};
+
 export type Invoice = {
   id: string;
   number: string;

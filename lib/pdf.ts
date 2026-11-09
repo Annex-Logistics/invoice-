@@ -31,11 +31,27 @@ export async function exportInvoicePdf(invoice: Invoice) {
 
   // Top: business + INVOICE title
   let y = margin + 8;
+  let textX = margin;
+
+  // Render logo if present
+  if (invoice.business.logoDataUrl) {
+    try {
+      const mimeMatch = /^data:image\/(png|jpeg|jpg|gif);base64,/i.exec(invoice.business.logoDataUrl);
+      if (mimeMatch) {
+        const fmt = mimeMatch[1].toUpperCase() === "JPG" ? "JPEG" : mimeMatch[1].toUpperCase();
+        const logoSize = 56;
+        doc.addImage(invoice.business.logoDataUrl, fmt, margin, y - 14, logoSize, logoSize, undefined, "FAST");
+        textX = margin + logoSize + 14;
+      }
+    } catch {
+      // ignore unsupported images
+    }
+  }
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(22);
   doc.setTextColor(...INK);
-  doc.text(invoice.business.name || "Your business", margin, y);
+  doc.text(invoice.business.name || "Your business", textX, y);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
@@ -48,9 +64,13 @@ export async function exportInvoicePdf(invoice: Invoice) {
   ].filter(Boolean);
   let by = y + 16;
   bizLines.forEach((line) => {
-    doc.text(line as string, margin, by);
+    doc.text(line as string, textX, by);
     by += 13;
   });
+  // Ensure header row has at least the logo's height
+  if (invoice.business.logoDataUrl) {
+    by = Math.max(by, y + 56);
+  }
 
   // Right side — big INVOICE
   doc.setFont("helvetica", "bold");
