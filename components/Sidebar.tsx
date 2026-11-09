@@ -32,6 +32,9 @@ export function Sidebar() {
         <Link href="/invoices/new" className="btn-primary w-full">
           <Plus className="h-4 w-4" />
           New invoice
+          <kbd className="ml-auto rounded bg-brand-700/40 px-1.5 py-0.5 text-[10px] font-semibold text-brand-50">
+            N
+          </kbd>
         </Link>
       </div>
 

@@ -11,6 +11,7 @@ import {
   Send,
   Check,
   Trash2,
+  Copy,
 } from "lucide-react";
 import type {
   Invoice,
@@ -21,6 +22,7 @@ import type {
 } from "@/lib/types";
 import { CURRENCIES, findCurrency, formatMoney } from "@/lib/currencies";
 import {
+  duplicateInvoice,
   removeInvoice,
   saveBusiness,
   upsertInvoice,
@@ -99,6 +101,12 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
 
   function handleMarkSent() {
     patch("status", "sent");
+  }
+
+  function handleDuplicate() {
+    upsertInvoice(invoice);
+    const copy = duplicateInvoice(invoice.id);
+    if (copy) router.push(`/invoices/${copy.id}`);
   }
 
   return (
@@ -468,6 +476,11 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                 <button className="btn-secondary w-full" onClick={handleDownload}>
                   <Download className="h-4 w-4" /> Download PDF
                 </button>
+                {!isNew && (
+                  <button className="btn-secondary w-full" onClick={handleDuplicate}>
+                    <Copy className="h-4 w-4" /> Duplicate
+                  </button>
+                )}
                 <button className="btn-primary w-full" onClick={() => upsertInvoice(invoice)}>
                   <Save className="h-4 w-4" /> Save
                 </button>

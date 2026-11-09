@@ -45,6 +45,25 @@ export function removeInvoice(id: string) {
   saveInvoices(loadInvoices().filter((i) => i.id !== id));
 }
 
+export function duplicateInvoice(id: string): Invoice | null {
+  const source = loadInvoice(id);
+  if (!source) return null;
+  const clone: Invoice = {
+    ...source,
+    id: createId(),
+    number: isBrowser() ? nextInvoiceNumber() : source.number + "-copy",
+    status: "draft",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    issueDate: todayISO(),
+    dueDate: addDaysISO(todayISO(), 14),
+    amountPaid: 0,
+    items: source.items.map((item) => ({ ...item, id: createId() })),
+  };
+  upsertInvoice(clone);
+  return clone;
+}
+
 export function loadBusiness(): Business {
   if (!isBrowser()) return emptyBusiness();
   try {

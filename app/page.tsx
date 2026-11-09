@@ -8,7 +8,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { formatMoney } from "@/lib/currencies";
 import { calcTotals } from "@/lib/totals";
 import type { Invoice } from "@/lib/types";
-import { loadInvoices } from "@/lib/storage";
+import { loadInvoices, saveInvoices, saveBusiness, loadBusiness } from "@/lib/storage";
+import { sampleInvoices } from "@/lib/sample";
 
 export default function DashboardPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -16,6 +17,14 @@ export default function DashboardPage() {
   useEffect(() => {
     setInvoices(loadInvoices());
   }, []);
+
+  function loadSample() {
+    const biz = loadBusiness();
+    const samples = sampleInvoices();
+    if (!biz.name) saveBusiness(samples[0].business);
+    saveInvoices(samples);
+    setInvoices(samples);
+  }
 
   const stats = useMemo(() => {
     let totalInvoiced = 0;
@@ -87,7 +96,11 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-3">
-          {recent.length === 0 ? <EmptyState /> : <InvoiceCompactList invoices={recent} />}
+          {recent.length === 0 ? (
+            <EmptyState onLoadSample={loadSample} />
+          ) : (
+            <InvoiceCompactList invoices={recent} />
+          )}
         </div>
       </div>
     </AppShell>
@@ -158,7 +171,7 @@ function InvoiceCompactList({ invoices }: { invoices: Invoice[] }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ onLoadSample }: { onLoadSample: () => void }) {
   return (
     <div className="card flex flex-col items-center justify-center p-10 text-center">
       <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-50">
@@ -169,10 +182,15 @@ function EmptyState() {
         Create your first invoice in under a minute — add your business info, line items, and
         send a polished PDF to your client.
       </p>
-      <Link href="/invoices/new" className="btn-primary mt-4">
-        <Plus className="h-4 w-4" />
-        Create invoice
-      </Link>
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+        <Link href="/invoices/new" className="btn-primary">
+          <Plus className="h-4 w-4" />
+          Create invoice
+        </Link>
+        <button type="button" className="btn-secondary" onClick={onLoadSample}>
+          Load sample data
+        </button>
+      </div>
     </div>
   );
 }
