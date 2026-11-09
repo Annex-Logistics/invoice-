@@ -49,6 +49,14 @@ export function LogoUpload({ value, onChange }: Props) {
       setError("Please choose an image file.");
       return;
     }
+    // Cap the raw upload so FileReader.readAsDataURL can't be used to
+    // OOM the browser with a multi-hundred-MB file. 8 MB is plenty for
+    // a logo and covers 12-megapixel JPEGs.
+    const MAX_BYTES = 8 * 1024 * 1024;
+    if (file.size > MAX_BYTES) {
+      setError("That image is too large (max 8 MB). Try a smaller one.");
+      return;
+    }
     setError(null);
     const reader = new FileReader();
     reader.onload = async () => {

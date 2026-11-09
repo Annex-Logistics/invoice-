@@ -25,9 +25,31 @@ export function loadInvoices(): Invoice[] {
   }
 }
 
+function safeSet(key: string, value: string): boolean {
+  if (!isBrowser()) return false;
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    // Most likely QuotaExceededError (5–10 MB per origin). Make the
+    // failure visible instead of silently losing the write.
+    if (typeof window !== "undefined") {
+      // eslint-disable-next-line no-console
+      console.error("[AnnexInvoice] localStorage write failed", err);
+      try {
+        window.alert(
+          "Your browser's storage is full. Export a backup from Settings and delete older invoices before adding new ones."
+        );
+      } catch {
+        /* alert unavailable (e.g. during test) */
+      }
+    }
+    return false;
+  }
+}
+
 export function saveInvoices(list: Invoice[]) {
-  if (!isBrowser()) return;
-  window.localStorage.setItem(INVOICES_KEY, JSON.stringify(list));
+  safeSet(INVOICES_KEY, JSON.stringify(list));
 }
 
 export function loadInvoice(id: string): Invoice | null {
@@ -78,8 +100,7 @@ export function loadBusiness(): Business {
 }
 
 export function saveBusiness(business: Business) {
-  if (!isBrowser()) return;
-  window.localStorage.setItem(BUSINESS_KEY, JSON.stringify(business));
+  safeSet(BUSINESS_KEY, JSON.stringify(business));
 }
 
 export function nextInvoiceNumber(): string {
@@ -89,7 +110,7 @@ export function nextInvoiceNumber(): string {
   const stored = raw ? parseInt(raw, 10) : 0;
   const current = Math.max(stored, prefs.nextNumber - 1);
   const next = current + 1;
-  window.localStorage.setItem(COUNTER_KEY, String(next));
+  safeSet(COUNTER_KEY, String(next));
   savePrefs({ ...prefs, nextNumber: next + 1 });
   return `${prefs.numberPrefix}${String(next).padStart(prefs.numberPadding, "0")}`;
 }
@@ -119,8 +140,7 @@ export function loadPrefs(): InvoicePrefs {
 }
 
 export function savePrefs(prefs: InvoicePrefs) {
-  if (!isBrowser()) return;
-  window.localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  safeSet(PREFS_KEY, JSON.stringify(prefs));
 }
 
 export function loadItems(): SavedItem[] {
@@ -136,8 +156,7 @@ export function loadItems(): SavedItem[] {
 }
 
 export function saveItems(list: SavedItem[]) {
-  if (!isBrowser()) return;
-  window.localStorage.setItem(ITEMS_KEY, JSON.stringify(list));
+  safeSet(ITEMS_KEY, JSON.stringify(list));
 }
 
 export function upsertItem(item: SavedItem) {

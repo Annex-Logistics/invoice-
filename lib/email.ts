@@ -2,9 +2,17 @@ import type { Invoice } from "./types";
 import { calcTotals } from "./totals";
 import { formatMoney } from "./currencies";
 
+// Strip anything the mailto scheme can't carry in an addr-spec,
+// including CRLF and separators that could inject extra headers
+// (CC, BCC, subject override) into the compose window if the user
+// pastes a crafted string into the Bill-To email field.
+function sanitizeEmailAddress(raw: string): string {
+  return raw.replace(/[\s,;<>"'()\[\]\\]+/g, "").slice(0, 254);
+}
+
 export function buildInvoiceMailto(invoice: Invoice): string {
   const totals = calcTotals(invoice);
-  const to = invoice.billTo.email || "";
+  const to = sanitizeEmailAddress(invoice.billTo.email || "");
   const subject = `Invoice ${invoice.number} from ${invoice.business.name || "Annex Logistics"}`;
 
   const lines: string[] = [];

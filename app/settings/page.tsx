@@ -22,6 +22,7 @@ import {
   todayISO,
   upsertItem,
 } from "@/lib/storage";
+import { parseBackup } from "@/lib/import";
 
 export default function SettingsPage() {
   const [business, setBusiness] = useState<Business>(emptyBusiness());
@@ -84,30 +85,43 @@ export default function SettingsPage() {
   }
 
   function importData(file: File) {
+    // Soft cap on the file we'll read into memory before parsing.
+    // A real backup even with hundreds of invoices and logos is well
+    // under this; the limit keeps a malicious or accidental multi-GB
+    // JSON from locking up the tab.
+    const MAX_BYTES = 20 * 1024 * 1024;
+    if (file.size > MAX_BYTES) {
+      alert("That backup file is too large to import (max 20 MB).");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const data = JSON.parse(String(reader.result));
-        if (data.business) {
-          saveBusiness(data.business);
-          setBusiness(data.business);
+        const result = parseBackup(String(reader.result));
+        if (result.business) {
+          saveBusiness(result.business);
+          setBusiness(result.business);
         }
-        if (data.prefs) {
-          savePrefs({ ...defaultPrefs(), ...data.prefs });
-          setPrefs({ ...defaultPrefs(), ...data.prefs });
+        if (result.prefs) {
+          savePrefs(result.prefs);
+          setPrefs(result.prefs);
         }
-        if (Array.isArray(data.items)) {
-          saveItems(data.items);
-          setItems(data.items);
+        if (result.items) {
+          saveItems(result.items);
+          setItems(result.items);
         }
-        if (Array.isArray(data.invoices)) {
-          saveInvoices(data.invoices);
+        if (result.invoices) {
+          saveInvoices(result.invoices);
         }
-        alert("Imported successfully.");
-      } catch {
-        alert("Could not read the file — is it a valid AnnexInvoice backup?");
+        const msg =
+          "Imported successfully." +
+          (result.warnings.length ? "\n\n" + result.warnings.join("\n") : "");
+        alert(msg);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Could not read the file.");
       }
     };
+    reader.onerror = () => alert("Could not read the file.");
     reader.readAsText(file);
   }
 
