@@ -332,63 +332,33 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                   value={formatMoney(totals.subtotal, invoice.currency)}
                 />
 
-                <div className="mt-2 grid grid-cols-[1fr_72px_90px] items-center gap-2">
-                  <input
-                    className="field-ghost text-sm"
-                    value={invoice.discountLabel}
-                    onChange={(e) => patch("discountLabel", e.target.value)}
-                  />
-                  <select
-                    className="field !py-1.5 text-xs"
-                    value={invoice.discountMode}
-                    onChange={(e) =>
-                      patch("discountMode", e.target.value as Invoice["discountMode"])
-                    }
-                  >
-                    <option value="percent">%</option>
-                    <option value="fixed">{invoice.currency.symbol}</option>
-                  </select>
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    className="field text-right"
-                    value={invoice.discountValue}
-                    onChange={(e) => patch("discountValue", parseFloat(e.target.value) || 0)}
-                  />
-                </div>
+                <TotalsAdjustmentRow
+                  label={invoice.discountLabel}
+                  mode={invoice.discountMode}
+                  value={invoice.discountValue}
+                  currencySymbol={invoice.currency.symbol}
+                  onLabel={(v) => patch("discountLabel", v)}
+                  onMode={(v) => patch("discountMode", v as Invoice["discountMode"])}
+                  onValue={(v) => patch("discountValue", v)}
+                />
 
-                <div className="mt-2 grid grid-cols-[1fr_72px_90px] items-center gap-2">
-                  <input
-                    className="field-ghost text-sm"
-                    value={invoice.taxLabel}
-                    onChange={(e) => patch("taxLabel", e.target.value)}
-                  />
-                  <select
-                    className="field !py-1.5 text-xs"
-                    value={invoice.taxMode}
-                    onChange={(e) => patch("taxMode", e.target.value as Invoice["taxMode"])}
-                  >
-                    <option value="percent">%</option>
-                    <option value="fixed">{invoice.currency.symbol}</option>
-                  </select>
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    className="field text-right"
-                    value={invoice.taxValue}
-                    onChange={(e) => patch("taxValue", parseFloat(e.target.value) || 0)}
-                  />
-                </div>
+                <TotalsAdjustmentRow
+                  label={invoice.taxLabel}
+                  mode={invoice.taxMode}
+                  value={invoice.taxValue}
+                  currencySymbol={invoice.currency.symbol}
+                  onLabel={(v) => patch("taxLabel", v)}
+                  onMode={(v) => patch("taxMode", v as Invoice["taxMode"])}
+                  onValue={(v) => patch("taxValue", v)}
+                />
 
-                <div className="mt-2 grid grid-cols-[1fr_90px] items-center gap-2">
+                <div className="mt-2 flex items-center justify-between gap-2">
                   <span className="text-sm text-ink-600">Shipping</span>
                   <input
                     type="number"
                     min={0}
                     step="any"
-                    className="field text-right"
+                    className="field w-[92px] text-right"
                     value={invoice.shipping}
                     onChange={(e) => patch("shipping", parseFloat(e.target.value) || 0)}
                   />
@@ -403,13 +373,13 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                   </span>
                 </div>
 
-                <div className="mt-3 grid grid-cols-[1fr_90px] items-center gap-2">
+                <div className="mt-3 flex items-center justify-between gap-2">
                   <span className="text-sm text-ink-600">Amount paid</span>
                   <input
                     type="number"
                     min={0}
                     step="any"
-                    className="field text-right"
+                    className="field w-[92px] text-right"
                     value={invoice.amountPaid}
                     onChange={(e) => patch("amountPaid", parseFloat(e.target.value) || 0)}
                   />
@@ -515,6 +485,66 @@ function TotalRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-baseline justify-between py-1">
       <span className="text-sm text-ink-600">{label}</span>
       <span className="text-sm font-medium text-ink-900">{value}</span>
+    </div>
+  );
+}
+
+function TotalsAdjustmentRow({
+  label,
+  mode,
+  value,
+  currencySymbol,
+  onLabel,
+  onMode,
+  onValue,
+}: {
+  label: string;
+  mode: "percent" | "fixed";
+  value: number;
+  currencySymbol: string;
+  onLabel: (v: string) => void;
+  onMode: (v: "percent" | "fixed") => void;
+  onValue: (v: number) => void;
+}) {
+  return (
+    <div className="mt-3 space-y-1.5">
+      <input
+        className="field-ghost w-full text-sm"
+        value={label}
+        onChange={(e) => onLabel(e.target.value)}
+      />
+      <div className="flex items-center gap-2">
+        <div className="inline-flex rounded-md border border-ink-200 bg-white text-xs">
+          <button
+            type="button"
+            onClick={() => onMode("percent")}
+            className={
+              "rounded-l-md px-2.5 py-1.5 font-medium transition-colors " +
+              (mode === "percent" ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-ink-50")
+            }
+          >
+            %
+          </button>
+          <button
+            type="button"
+            onClick={() => onMode("fixed")}
+            className={
+              "rounded-r-md border-l border-ink-200 px-2.5 py-1.5 font-medium transition-colors " +
+              (mode === "fixed" ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-ink-50")
+            }
+          >
+            {currencySymbol}
+          </button>
+        </div>
+        <input
+          type="number"
+          min={0}
+          step="any"
+          className="field flex-1 text-right"
+          value={value}
+          onChange={(e) => onValue(parseFloat(e.target.value) || 0)}
+        />
+      </div>
     </div>
   );
 }
