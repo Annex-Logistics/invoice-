@@ -1,12 +1,18 @@
 "use client";
 
 import type { Invoice } from "@/lib/types";
-import { calcTotals } from "@/lib/totals";
+import { calcTotals, sumPayments } from "@/lib/totals";
 import { formatMoney } from "@/lib/currencies";
 
 export function InvoicePreview({ invoice }: { invoice: Invoice }) {
   const totals = calcTotals(invoice);
   const hasShip = !!(invoice.shipTo && (invoice.shipTo.name || invoice.shipTo.address));
+  const isEstimate = invoice.kind === "estimate";
+  const docTitle = isEstimate ? "ESTIMATE" : "INVOICE";
+  const docLabel = isEstimate ? "Estimate" : "Invoice";
+  const dueLabel = isEstimate ? "Valid until" : "Due";
+  const paidTotal = sumPayments(invoice);
+  const paymentsList = invoice.payments ?? [];
 
   return (
     <div className="print-page mx-auto max-w-[8.5in] bg-white p-8 text-ink-900">
@@ -32,11 +38,11 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
           </div>
         </div>
         <div className="text-right">
-          <div className="text-3xl font-extrabold tracking-tight text-brand-700">INVOICE</div>
+          <div className="text-3xl font-extrabold tracking-tight text-brand-700">{docTitle}</div>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-            <dt className="text-ink-500">Invoice #</dt><dd className="font-medium">{invoice.number}</dd>
+            <dt className="text-ink-500">{docLabel} #</dt><dd className="font-medium">{invoice.number}</dd>
             <dt className="text-ink-500">Issue</dt><dd className="font-medium">{invoice.issueDate}</dd>
-            <dt className="text-ink-500">Due</dt><dd className="font-medium">{invoice.dueDate}</dd>
+            <dt className="text-ink-500">{dueLabel}</dt><dd className="font-medium">{invoice.dueDate}</dd>
             {invoice.poNumber && (<><dt className="text-ink-500">PO</dt><dd className="font-medium">{invoice.poNumber}</dd></>)}
           </dl>
         </div>
@@ -107,9 +113,9 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
           )}
           <div className="my-2 border-t border-ink-200" />
           <Row label="Total" value={formatMoney(totals.total, invoice.currency)} bold />
-          {invoice.amountPaid > 0 && (
+          {!isEstimate && paidTotal > 0 && (
             <>
-              <Row label="Amount paid" value={`- ${formatMoney(invoice.amountPaid, invoice.currency)}`} />
+              <Row label="Amount paid" value={`- ${formatMoney(paidTotal, invoice.currency)}`} />
               <div className="my-2 border-t border-ink-200" />
               <div className="flex items-baseline justify-between rounded-md bg-brand-50 px-3 py-2">
                 <span className="text-sm font-semibold text-brand-900">Balance due</span>
@@ -121,6 +127,28 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
           )}
         </div>
       </div>
+
+      {!isEstimate && paymentsList.length > 0 && (
+        <div className="mt-6 rounded-md border border-ink-100">
+          <div className="border-b border-ink-100 bg-ink-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-ink-500">
+            Payments
+          </div>
+          <table className="w-full text-xs">
+            <tbody>
+              {paymentsList.map((p) => (
+                <tr key={p.id} className="border-b border-ink-100 last:border-b-0">
+                  <td className="px-3 py-1.5 text-ink-700">{p.date}</td>
+                  <td className="px-3 py-1.5 capitalize text-ink-700">{p.method.replace("-", " ")}</td>
+                  <td className="px-3 py-1.5 text-ink-500">{p.note}</td>
+                  <td className="px-3 py-1.5 text-right font-medium text-ink-900">
+                    {formatMoney(p.amount, invoice.currency)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {(invoice.notes || invoice.terms) && (
         <div className="mt-8 grid grid-cols-2 gap-6 border-t border-ink-100 pt-4">

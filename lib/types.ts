@@ -18,7 +18,28 @@ export type Party = {
   phone: string;
 };
 
+export type DocumentKind = "invoice" | "estimate";
+
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
+export type EstimateStatus = "draft" | "sent" | "accepted" | "declined";
+export type DocumentStatus = InvoiceStatus | EstimateStatus;
+
+export type PaymentMethod =
+  | "cash"
+  | "card"
+  | "bank-transfer"
+  | "check"
+  | "paypal"
+  | "stripe"
+  | "other";
+
+export type Payment = {
+  id: string;
+  date: string;         // ISO yyyy-mm-dd
+  amount: number;
+  method: PaymentMethod;
+  note: string;
+};
 
 export type DiscountMode = "percent" | "fixed";
 export type TaxMode = "percent" | "fixed";
@@ -41,6 +62,23 @@ export type InvoicePrefs = {
   defaultTaxPercent: number;
   defaultCurrencyCode: string;
   defaultDueDays: number;
+
+  // Estimate-specific numbering and defaults. Optional so legacy prefs
+  // records load without migration.
+  estimateNumberPrefix?: string;
+  estimateNextNumber?: number;
+  estimateNumberPadding?: number;
+  estimateDefaultValidDays?: number;
+  estimateDefaultTerms?: string;
+};
+
+export type Client = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  notes?: string;
 };
 
 export type SavedItem = {
@@ -51,12 +89,13 @@ export type SavedItem = {
 
 export type Invoice = {
   id: string;
+  kind?: DocumentKind;         // omitted on legacy records = "invoice"
   number: string;
-  status: InvoiceStatus;
+  status: DocumentStatus;
   createdAt: string;
   updatedAt: string;
   issueDate: string;
-  dueDate: string;
+  dueDate: string;              // for estimates, used as "valid until"
   poNumber?: string;
 
   business: Business;
@@ -80,7 +119,10 @@ export type Invoice = {
   notes: string;
   terms: string;
 
+  // Legacy single-field; new code reads sum of `payments` and falls
+  // back to amountPaid when payments is absent.
   amountPaid: number;
+  payments?: Payment[];
 };
 
 export type Totals = {

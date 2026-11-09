@@ -1,7 +1,7 @@
 "use client";
 
 import type { Invoice } from "./types";
-import { calcTotals } from "./totals";
+import { calcTotals, sumPayments } from "./totals";
 import { formatMoney } from "./currencies";
 
 /**
@@ -72,22 +72,24 @@ export async function exportInvoicePdf(invoice: Invoice) {
     by = Math.max(by, y + 56);
   }
 
-  // Right side — big INVOICE
+  // Right side — big INVOICE / ESTIMATE
+  const isEstimate = invoice.kind === "estimate";
+  const docLabel = isEstimate ? "Estimate" : "Invoice";
   doc.setFont("helvetica", "bold");
   doc.setFontSize(34);
   doc.setTextColor(...BRAND);
-  const title = "INVOICE";
+  const title = isEstimate ? "ESTIMATE" : "INVOICE";
   const titleW = doc.getTextWidth(title);
   doc.text(title, pageW - margin - titleW, y);
 
-  // Invoice meta
+  // Document meta
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.setTextColor(...INK);
-  const metaRows = [
-    ["Invoice #", invoice.number],
+  const metaRows: Array<[string, string]> = [
+    [`${docLabel} #`, invoice.number],
     ["Issue Date", invoice.issueDate],
-    ["Due Date",  invoice.dueDate],
+    [isEstimate ? "Valid Until" : "Due Date", invoice.dueDate],
   ];
   if (invoice.poNumber) metaRows.push(["PO Number", invoice.poNumber]);
   let my = y + 18;
@@ -221,8 +223,9 @@ export async function exportInvoicePdf(invoice: Invoice) {
     rows.push(["Shipping", formatMoney(totals.shipping, invoice.currency)]);
   }
   rows.push(["Total", formatMoney(totals.total, invoice.currency), true]);
-  if (invoice.amountPaid > 0) {
-    rows.push(["Amount Paid", `- ${formatMoney(invoice.amountPaid, invoice.currency)}`]);
+  const paidTotal = sumPayments(invoice);
+  if (!isEstimate && paidTotal > 0) {
+    rows.push(["Amount Paid", `- ${formatMoney(paidTotal, invoice.currency)}`]);
     rows.push(["Balance Due", formatMoney(totals.balanceDue, invoice.currency), true]);
   }
 
@@ -270,6 +273,42 @@ export async function exportInvoicePdf(invoice: Invoice) {
 
   if (invoice.notes) renderParagraph("Notes", invoice.notes);
   if (invoice.terms) renderParagraph("Terms", invoice.terms);
+
+  // Payments received (invoices only)
+  if (!isEstimate && Array.isArray(invoice.payments) && invoice.payments.length > 0) {
+    const headerH = 18;
+    const rowH = 14;
+    const blockH = headerH + invoice.payments.length * rowH + 6;
+    ensureSpace(blockH);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...INK);
+    doc.text("Payments received", margin, y);
+    y += 12;
+
+    doc.setFillColor(243, 245, 250);
+    doc.rect(margin, y, pageW - margin * 2, headerH, "F");
+    doc.setFontSize(9);
+    doc.text("Date",   margin + 8, y + 12);
+    doc.text("Method", margin + 100, y + 12);
+    doc.text("Note",   margin + 220, y + 12);
+    doc.text("Amount", pageW - margin - 8, y + 12, { align: "right" });
+    y += headerH;
+
+    doc.setFont("helvetica", "normal");
+    for (const p of invoice.payments) {
+      doc.setTextColor(...INK);
+      doc.text(p.date || "—", margin + 8, y + 11);
+      doc.text((p.method || "other").replace("-", " "), margin + 100, y + 11);
+      const noteLine = doc.splitTextToSize(p.note || "", 220)[0] || "";
+      doc.text(noteLine, margin + 220, y + 11);
+      doc.text(formatMoney(p.amount, invoice.currency), pageW - margin - 8, y + 11, { align: "right" });
+      y += rowH;
+      doc.setDrawColor(...RULE);
+      doc.line(margin, y, pageW - margin, y);
+    }
+  }
 
   // Footer on every page
   const totalPages = doc.getNumberOfPages();

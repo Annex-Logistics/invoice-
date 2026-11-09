@@ -15,24 +15,36 @@ import {
   Mail,
   Library,
   Plus,
+  Users,
+  FileCheck,
+  X,
+  CreditCard,
 } from "lucide-react";
 import type {
   Invoice,
   LineItem,
   Party,
   Business,
-  InvoiceStatus,
+  DocumentStatus,
+  Payment,
+  PaymentMethod,
+  Client,
 } from "@/lib/types";
 import { CURRENCIES, findCurrency, formatMoney } from "@/lib/currencies";
 import {
+  convertEstimateToInvoice,
   createId,
-  duplicateInvoice,
+  duplicateDocument,
+  loadClients,
   loadItems,
-  removeInvoice,
+  removeDocument,
   saveBusiness,
-  upsertInvoice,
+  todayISO,
+  upsertClient,
+  upsertDocument,
   upsertItem,
 } from "@/lib/storage";
+import { sumPayments } from "@/lib/totals";
 import { buildInvoiceMailto } from "@/lib/email";
 import { calcTotals } from "@/lib/totals";
 import { exportInvoicePdf } from "@/lib/pdf";
@@ -46,7 +58,8 @@ type Props = {
   isNew?: boolean;
 };
 
-const STATUS_OPTIONS: InvoiceStatus[] = ["draft", "sent", "paid", "overdue"];
+const INVOICE_STATUS: DocumentStatus[] = ["draft", "sent", "paid", "overdue"];
+const ESTIMATE_STATUS: DocumentStatus[] = ["draft", "sent", "accepted", "declined"];
 
 export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   const router = useRouter();
@@ -57,6 +70,12 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   );
   const [saved, setSaved] = useState<"idle" | "saving" | "saved">("idle");
   const [showLibrary, setShowLibrary] = useState(false);
+  const [showClients, setShowClients] = useState(false);
+
+  const isEstimate = invoice.kind === "estimate";
+  const listPath = isEstimate ? "/estimates" : "/invoices";
+  const docLabel = isEstimate ? "Estimate" : "Invoice";
+  const statusOptions = isEstimate ? ESTIMATE_STATUS : INVOICE_STATUS;
 
   const totals = useMemo(() => calcTotals(invoice), [invoice]);
 
@@ -79,7 +98,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
       hideTimerRef.current = null;
     }
     const t = setTimeout(() => {
-      upsertInvoice(invoice);
+      upsertDocument(invoice);
       const bizSnapshot = JSON.stringify(invoice.business);
       if (bizSnapshot !== initialBusinessRef.current) {
         saveBusiness(invoice.business);
@@ -123,9 +142,9 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   }
 
   function handleDelete() {
-    if (!confirm("Delete this invoice? This cannot be undone.")) return;
-    removeInvoice(invoice.id);
-    router.push("/invoices");
+    if (!confirm(`Delete this ${docLabel.toLowerCase()}? This cannot be undone.`)) return;
+    removeDocument(invoice);
+    router.push(listPath);
   }
 
   async function handleDownload() {
@@ -136,10 +155,16 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
     patch("status", "sent");
   }
 
+  function handleConvertToInvoice() {
+    upsertDocument(invoice);
+    const created = convertEstimateToInvoice(invoice.id);
+    if (created) router.push(`/invoices/${created.id}`);
+  }
+
   function handleDuplicate() {
-    upsertInvoice(invoice);
-    const copy = duplicateInvoice(invoice.id);
-    if (copy) router.push(`/invoices/${copy.id}`);
+    upsertDocument(invoice);
+    const copy = duplicateDocument(invoice);
+    if (copy) router.push(`${listPath}/${copy.id}`);
   }
 
   function handleEmail() {
@@ -165,6 +190,62 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
     setShowLibrary(true);
   }
 
+  function addPayment() {
+    const t = calcTotals(invoice);
+    const existing = invoice.payments ?? [];
+    const defaultAmount = Math.max(0, t.total - sumPayments(invoice));
+    const next: Payment = {
+      id: createId(),
+      date: todayISO(),
+      amount: Math.round(defaultAmount * 100) / 100,
+      method: "bank-transfer",
+      note: "",
+    };
+    setInvoice((prev) => ({ ...prev, amountPaid: 0, payments: [...existing, next] }));
+  }
+
+  function patchPayment(id: string, patchFields: Partial<Payment>) {
+    const existing = invoice.payments ?? [];
+    setInvoice((prev) => ({
+      ...prev,
+      payments: existing.map((p) => (p.id === id ? { ...p, ...patchFields } : p)),
+    }));
+  }
+
+  function removePayment(id: string) {
+    const existing = invoice.payments ?? [];
+    setInvoice((prev) => ({ ...prev, payments: existing.filter((p) => p.id !== id) }));
+  }
+
+  function pickClient(client: Client) {
+    setInvoice((prev) => ({
+      ...prev,
+      billTo: {
+        name: client.name,
+        email: client.email,
+        phone: client.phone,
+        address: client.address,
+      },
+    }));
+    setShowClients(false);
+  }
+
+  function saveCurrentAsClient() {
+    const b = invoice.billTo;
+    if (!b.name.trim() && !b.email.trim()) {
+      alert("Fill at least a name or email before saving as a client.");
+      return;
+    }
+    upsertClient({
+      id: createId(),
+      name: b.name.trim(),
+      email: b.email.trim(),
+      phone: b.phone.trim(),
+      address: b.address.trim(),
+    });
+    alert("Client saved to your client list.");
+  }
+
   function insertLibraryItem(description: string, rate: number) {
     const current = invoice.items;
     // If the only line is empty, replace it instead of appending.
@@ -184,14 +265,14 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
       {/* Top bar */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link href="/invoices" className="btn-ghost -ml-2">
+          <Link href={listPath} className="btn-ghost -ml-2">
             <ArrowLeft className="h-4 w-4" />
             Back
           </Link>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold text-ink-900">
-                {isNew ? "New invoice" : `Edit ${invoice.number}`}
+                {isNew ? `New ${docLabel.toLowerCase()}` : `Edit ${invoice.number}`}
               </h1>
               <StatusBadge status={invoice.status} />
             </div>
@@ -216,9 +297,16 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
           <button className="btn-secondary" onClick={handleEmail} disabled={!invoice.billTo.email}>
             <Mail className="h-4 w-4" /> Email
           </button>
-          <button className="btn-primary" onClick={handleMarkSent}>
-            <Send className="h-4 w-4" /> Mark as sent
-          </button>
+          {isEstimate && !isNew && (
+            <button className="btn-primary" onClick={handleConvertToInvoice}>
+              <FileCheck className="h-4 w-4" /> Convert to invoice
+            </button>
+          )}
+          {!isEstimate && (
+            <button className="btn-primary" onClick={handleMarkSent}>
+              <Send className="h-4 w-4" /> Mark as sent
+            </button>
+          )}
         </div>
       </div>
 
@@ -263,7 +351,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
 
               <div className="space-y-3 md:border-l md:border-ink-100 md:pl-5">
                 <div>
-                  <label className="label">Invoice #</label>
+                  <label className="label">{docLabel} #</label>
                   <input className="field" maxLength={64}
                     value={invoice.number}
                     onChange={(e) => patch("number", e.target.value)} />
@@ -276,7 +364,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                       onChange={(e) => patch("issueDate", e.target.value)} />
                   </div>
                   <div>
-                    <label className="label">Due</label>
+                    <label className="label">{isEstimate ? "Valid until" : "Due"}</label>
                     <input type="date" className="field"
                       value={invoice.dueDate}
                       onChange={(e) => patch("dueDate", e.target.value)} />
@@ -296,7 +384,26 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
           <section className="card p-5">
             <div className="grid gap-5 md:grid-cols-2">
               <div>
-                <h3 className="mb-3 text-sm font-semibold text-ink-900">Bill To</h3>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-ink-900">Bill To</h3>
+                  <div className="flex items-center gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setShowClients(true)}
+                      className="inline-flex items-center gap-1 font-medium text-brand-600 hover:text-brand-700"
+                    >
+                      <Users className="h-3.5 w-3.5" /> Pick client
+                    </button>
+                    <span className="text-ink-300">·</span>
+                    <button
+                      type="button"
+                      onClick={saveCurrentAsClient}
+                      className="inline-flex items-center gap-1 font-medium text-brand-600 hover:text-brand-700"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Save as client
+                    </button>
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <input className="field" placeholder="Client / company name" maxLength={200}
                     value={invoice.billTo.name}
@@ -466,34 +573,105 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                   </span>
                 </div>
 
-                <div className="mt-3 flex items-center justify-between gap-2">
-                  <span className="text-sm text-ink-600">Amount paid</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    className="field w-[92px] text-right"
-                    value={invoice.amountPaid}
-                    onChange={(e) => patch("amountPaid", parseFloat(e.target.value) || 0)}
-                  />
-                </div>
+                {!isEstimate && (
+                  <>
+                    <div className="mt-3 flex items-baseline justify-between">
+                      <span className="text-sm text-ink-600">Amount paid</span>
+                      <span className="text-sm font-medium text-ink-900">
+                        {formatMoney(sumPayments(invoice), invoice.currency)}
+                      </span>
+                    </div>
 
-                <div className="mt-3 flex items-baseline justify-between rounded-md bg-ink-50 px-3 py-2">
-                  <span className="text-sm font-semibold text-ink-900">Balance due</span>
-                  <span className="text-lg font-bold text-ink-900">
-                    {formatMoney(totals.balanceDue, invoice.currency)}
-                  </span>
-                </div>
+                    <div className="mt-3 flex items-baseline justify-between rounded-md bg-ink-50 px-3 py-2">
+                      <span className="text-sm font-semibold text-ink-900">Balance due</span>
+                      <span className="text-lg font-bold text-ink-900">
+                        {formatMoney(totals.balanceDue, invoice.currency)}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </section>
+
+          {/* Payments */}
+          {!isEstimate && (
+            <section className="card p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-ink-400" />
+                  <h3 className="text-sm font-semibold text-ink-900">Payments received</h3>
+                </div>
+                <button type="button" className="btn-ghost !py-1 text-xs" onClick={addPayment}>
+                  <Plus className="h-3.5 w-3.5" /> Record payment
+                </button>
+              </div>
+
+              {(invoice.payments ?? []).length === 0 ? (
+                <div className="rounded-md border border-dashed border-ink-200 p-6 text-center text-sm text-ink-400">
+                  No payments recorded yet. Record each one — date, method and amount — to track the balance due.
+                </div>
+              ) : (
+                <ul className="divide-y divide-ink-100 rounded-md border border-ink-100">
+                  {(invoice.payments ?? []).map((p) => (
+                    <li key={p.id} className="grid grid-cols-1 gap-2 px-3 py-3 md:grid-cols-[140px_1fr_140px_120px_32px] md:items-center">
+                      <input
+                        type="date"
+                        className="field"
+                        value={p.date}
+                        onChange={(e) => patchPayment(p.id, { date: e.target.value })}
+                      />
+                      <select
+                        className="field"
+                        value={p.method}
+                        onChange={(e) => patchPayment(p.id, { method: e.target.value as PaymentMethod })}
+                      >
+                        <option value="cash">Cash</option>
+                        <option value="card">Card</option>
+                        <option value="bank-transfer">Bank transfer</option>
+                        <option value="check">Check</option>
+                        <option value="paypal">PayPal</option>
+                        <option value="stripe">Stripe</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <input
+                        className="field"
+                        placeholder="Note (optional)"
+                        maxLength={200}
+                        value={p.note}
+                        onChange={(e) => patchPayment(p.id, { note: e.target.value })}
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        className="field text-right"
+                        value={p.amount}
+                        onChange={(e) =>
+                          patchPayment(p.id, { amount: parseFloat(e.target.value) || 0 })
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removePayment(p.id)}
+                        className="rounded p-1.5 text-ink-400 hover:bg-rose-50 hover:text-rose-600"
+                        aria-label="Remove payment"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
 
           {/* Danger */}
           {!isNew && (
             <div className="pt-4">
               <button className="btn-danger" onClick={handleDelete}>
                 <Trash2 className="h-4 w-4" />
-                Delete invoice
+                Delete {docLabel.toLowerCase()}
               </button>
             </div>
           )}
@@ -507,7 +685,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                 Status
               </h4>
               <div className="grid grid-cols-2 gap-2">
-                {STATUS_OPTIONS.map((s) => {
+                {statusOptions.map((s) => {
                   const active = invoice.status === s;
                   return (
                     <button
@@ -544,7 +722,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                     <Copy className="h-4 w-4" /> Duplicate
                   </button>
                 )}
-                <button className="btn-primary w-full" onClick={() => upsertInvoice(invoice)}>
+                <button className="btn-primary w-full" onClick={() => upsertDocument(invoice)}>
                   <Save className="h-4 w-4" /> Save
                 </button>
               </div>
@@ -554,7 +732,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
       </div>
 
       {showPreview && (
-        <PreviewModal onClose={() => setShowPreview(false)}>
+        <PreviewModal onClose={() => setShowPreview(false)} title={`${docLabel} preview`}>
           <InvoicePreview invoice={invoice} />
           <div className="no-print flex justify-end gap-2 p-4">
             <button className="btn-secondary" onClick={() => setShowPreview(false)}>
@@ -575,6 +753,13 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
           onClose={() => setShowLibrary(false)}
           onPick={insertLibraryItem}
           currencySymbol={invoice.currency.symbol}
+        />
+      )}
+
+      {showClients && (
+        <ClientPickerModal
+          onClose={() => setShowClients(false)}
+          onPick={pickClient}
         />
       )}
     </div>
@@ -650,7 +835,15 @@ function TotalsAdjustmentRow({
   );
 }
 
-function PreviewModal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+function PreviewModal({
+  children,
+  onClose,
+  title = "Invoice preview",
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+  title?: string;
+}) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -671,10 +864,96 @@ function PreviewModal({ children, onClose }: { children: React.ReactNode; onClos
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
-          <h3 className="text-sm font-semibold text-ink-900">Invoice preview</h3>
+          <h3 className="text-sm font-semibold text-ink-900">{title}</h3>
           <button className="btn-ghost -mr-2" onClick={onClose}>Close</button>
         </div>
         {children}
+      </div>
+    </div>
+  );
+}
+
+function ClientPickerModal({
+  onClose,
+  onPick,
+}: {
+  onClose: () => void;
+  onPick: (client: Client) => void;
+}) {
+  const [clients, setClients] = useState<Client[]>([]);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    setClients(loadClients());
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? clients.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.email.toLowerCase().includes(q) ||
+          c.phone.toLowerCase().includes(q)
+      )
+    : clients;
+
+  return (
+    <div
+      className="no-print fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-950/50 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="my-16 w-full max-w-md overflow-hidden rounded-xl bg-white shadow-pop"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
+          <h3 className="text-sm font-semibold text-ink-900">Pick a client</h3>
+          <button className="btn-ghost -mr-2" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="border-b border-ink-100 p-3">
+          <input
+            autoFocus
+            className="field"
+            placeholder="Search name, email, phone…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        {clients.length === 0 ? (
+          <div className="p-6 text-center text-sm text-ink-500">
+            No saved clients yet. Fill the Bill-To fields and click <strong>Save as client</strong>, or add them on the Clients page.
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-6 text-center text-sm text-ink-500">No matches.</div>
+        ) : (
+          <ul className="max-h-80 divide-y divide-ink-100 overflow-y-auto">
+            {filtered.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  onClick={() => onPick(c)}
+                  className="flex w-full flex-col items-start gap-0.5 px-4 py-3 text-left transition-colors hover:bg-ink-50"
+                >
+                  <span className="text-sm font-semibold text-ink-900">{c.name || "Unnamed client"}</span>
+                  {c.email && <span className="text-xs text-ink-500">{c.email}</span>}
+                  {c.address && <span className="text-xs text-ink-400 line-clamp-1">{c.address.split("\n")[0]}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

@@ -6,18 +6,24 @@ import { NextResponse, type NextRequest } from "next/server";
 // permitted by the CSP we emit here.
 export function middleware(request: NextRequest) {
   const nonce = globalThis.crypto.randomUUID().replace(/-/g, "");
+  const isDev = process.env.NODE_ENV !== "production";
+
+  // Next.js's dev runtime uses eval() for HMR and new WebSocket for
+  // the HMR channel. Those have to be allowed in dev; production
+  // builds don't need either, so the policy there stays strict.
+  const scriptSrc = isDev
+    ? `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'unsafe-inline'`
+    : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`;
+  const connectSrc = isDev ? "connect-src 'self' ws: wss:" : "connect-src 'self'";
 
   const csp = [
     "default-src 'self'",
-    // `strict-dynamic` lets the nonce'd Next bootstrap script load the
-    // rest; it's ignored by browsers that don't understand it, which
-    // then fall back to 'self' + the explicit nonce.
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    scriptSrc,
     // Tailwind inlines its tokens via <style> at build time.
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob:",
-    "connect-src 'self'",
+    connectSrc,
     "frame-ancestors 'none'",
     "form-action 'self'",
     "base-uri 'self'",

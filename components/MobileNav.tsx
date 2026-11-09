@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { FileText, LayoutDashboard, Plus, Settings, Users } from "lucide-react";
+import { BarChart3, FileCheck, FileText, LayoutDashboard, Plus, Settings } from "lucide-react";
 import { Logo } from "./Logo";
 
 const items = [
-  { href: "/",         label: "Home",     icon: LayoutDashboard },
-  { href: "/invoices", label: "Invoices", icon: FileText },
-  { href: "/clients",  label: "Clients",  icon: Users },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/",          label: "Home",      icon: LayoutDashboard },
+  { href: "/invoices",  label: "Invoices",  icon: FileText },
+  { href: "/estimates", label: "Estimates", icon: FileCheck },
+  { href: "/reports",   label: "Reports",   icon: BarChart3 },
+  { href: "/settings",  label: "Settings",  icon: Settings },
 ];
 
 export function MobileNav() {

@@ -31,7 +31,9 @@ export function KeyboardShortcuts() {
           const next = (ev: KeyboardEvent) => {
             if (ev.key === "d") router.push("/");
             if (ev.key === "i") router.push("/invoices");
+            if (ev.key === "e") router.push("/estimates");
             if (ev.key === "c") router.push("/clients");
+            if (ev.key === "r") router.push("/reports");
             if (ev.key === "s") router.push("/settings");
             window.removeEventListener("keydown", next);
           };
@@ -41,6 +43,10 @@ export function KeyboardShortcuts() {
         if (e.key === "n" && !e.shiftKey) {
           e.preventDefault();
           router.push("/invoices/new");
+        }
+        if (e.key === "N" && e.shiftKey) {
+          e.preventDefault();
+          router.push("/estimates/new");
         }
       }
     }
