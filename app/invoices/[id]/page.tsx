@@ -48,7 +48,9 @@ export default function EditInvoicePage() {
 
   return (
     <AppShell>
-      <InvoiceEditor initialInvoice={invoice} />
+      {/* Key by id so navigating between invoices (e.g. after Duplicate)
+          fully remounts the editor instead of reusing stale state. */}
+      <InvoiceEditor key={invoice.id} initialInvoice={invoice} />
     </AppShell>
   );
 }

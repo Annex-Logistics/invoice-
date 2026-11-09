@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { formatMoney } from "@/lib/currencies";
 import { calcTotals } from "@/lib/totals";
 import type { Invoice } from "@/lib/types";
-import { loadInvoices, saveInvoices, saveBusiness, loadBusiness } from "@/lib/storage";
+import { loadInvoices, saveInvoices, saveBusiness, loadBusiness, todayISO } from "@/lib/storage";
 import { sampleInvoices } from "@/lib/sample";
 
 export default function DashboardPage() {
@@ -31,7 +31,7 @@ export default function DashboardPage() {
     let totalPaid = 0;
     let totalOutstanding = 0;
     let overdueCount = 0;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
 
     invoices.forEach((inv) => {
       const t = calcTotals(inv);

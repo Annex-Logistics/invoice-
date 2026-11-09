@@ -19,6 +19,7 @@ import {
   saveInvoices,
   saveItems,
   savePrefs,
+  todayISO,
   upsertItem,
 } from "@/lib/storage";
 
@@ -77,7 +78,7 @@ export default function SettingsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `annexinvoice-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `annexinvoice-backup-${todayISO()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }

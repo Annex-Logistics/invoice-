@@ -173,15 +173,21 @@ export async function exportInvoicePdf(invoice: Invoice) {
   y = tableTop + 28;
   doc.setFont("helvetica", "normal");
 
+  const FOOTER_RESERVE = 40; // leave room for the page footer text
+
+  function ensureSpace(h: number) {
+    if (y + h > pageH - margin - FOOTER_RESERVE) {
+      doc.addPage();
+      y = margin;
+    }
+  }
+
   for (const item of invoice.items) {
     const amount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
     const descLines = doc.splitTextToSize(item.description || "—", colQty - colDesc - 16);
     const rowH = Math.max(18, descLines.length * 13 + 6);
 
-    if (y + rowH > pageH - margin - 220) {
-      doc.addPage();
-      y = margin;
-    }
+    ensureSpace(rowH + 6);
 
     doc.setTextColor(...INK);
     doc.text(descLines, colDesc + 8, y + 12);
@@ -220,6 +226,10 @@ export async function exportInvoicePdf(invoice: Invoice) {
     rows.push(["Balance Due", formatMoney(totals.balanceDue, invoice.currency), true]);
   }
 
+  // Keep the totals block together on one page when possible.
+  const totalsHeight = rows.reduce((h, r) => h + 16 + (r[2] ? 6 : 0), 0);
+  ensureSpace(totalsHeight);
+
   doc.setFontSize(10);
   rows.forEach(([k, v, bold]) => {
     doc.setFont("helvetica", bold ? "bold" : "normal");
@@ -237,43 +247,53 @@ export async function exportInvoicePdf(invoice: Invoice) {
   // Notes / Terms
   y += 20;
   if (invoice.notes || invoice.terms) {
+    ensureSpace(24);
     doc.setDrawColor(...RULE);
     doc.line(margin, y, pageW - margin, y);
     y += 16;
   }
 
-  if (invoice.notes) {
+  function renderParagraph(heading: string, text: string) {
+    const bodyLines = doc.splitTextToSize(text, pageW - margin * 2);
+    const blockHeight = 14 + bodyLines.length * 12 + 10;
+    ensureSpace(blockHeight);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     doc.setTextColor(...INK);
-    doc.text("Notes", margin, y);
+    doc.text(heading, margin, y);
     y += 14;
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...MUTED);
-    const noteLines = doc.splitTextToSize(invoice.notes, pageW - margin * 2);
-    doc.text(noteLines, margin, y);
-    y += noteLines.length * 12 + 10;
+    doc.text(bodyLines, margin, y);
+    y += bodyLines.length * 12 + 10;
   }
 
-  if (invoice.terms) {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(...INK);
-    doc.text("Terms", margin, y);
-    y += 14;
+  if (invoice.notes) renderParagraph("Notes", invoice.notes);
+  if (invoice.terms) renderParagraph("Terms", invoice.terms);
+
+  // Footer on every page
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
     doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
     doc.setTextColor(...MUTED);
-    const termLines = doc.splitTextToSize(invoice.terms, pageW - margin * 2);
-    doc.text(termLines, margin, y);
-    y += termLines.length * 12 + 10;
+    const footer = `AnnexInvoice — ${invoice.business.name || "Annex Logistics"}`;
+    doc.text(footer, margin, pageH - 24);
+    if (totalPages > 1) {
+      doc.text(`Page ${i} of ${totalPages}`, pageW - margin, pageH - 24, { align: "right" });
+    }
   }
 
-  // Footer
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(...MUTED);
-  const footer = `AnnexInvoice — ${invoice.business.name || "Annex Logistics"}`;
-  doc.text(footer, margin, pageH - 24);
+  doc.save(safeFilename(invoice.number) + ".pdf");
+}
 
-  doc.save(`${invoice.number || "invoice"}.pdf`);
+// Keep the filename safe across OSes; invoice numbers like "INV/2026"
+// or "INV:01" would otherwise fail or create unexpected subdirectories.
+function safeFilename(raw: string | undefined): string {
+  const base = (raw || "invoice")
+    .replace(/[\\/:*?"<>|\u0000-\u001F]+/g, "-")
+    .replace(/^[\s.]+|[\s.]+$/g, "")
+    .slice(0, 80);
+  return base || "invoice";
 }

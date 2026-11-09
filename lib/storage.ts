@@ -170,14 +170,27 @@ export function createId(): string {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// Format a Date in the user's LOCAL calendar, not UTC. `toISOString`
+// converts to UTC first, so a user at UTC-8 at 11pm local on Nov 8
+// would get "2026-11-09" — off by a day.
+function formatLocalISO(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return formatLocalISO(new Date());
 }
 
 export function addDaysISO(iso: string, days: number): string {
-  const d = new Date(iso);
+  // `new Date("2026-11-09")` is parsed as UTC midnight, which shifts
+  // the local calendar day in non-UTC time zones. Parse the parts and
+  // build a local Date instead.
+  const [y, m, day] = iso.split("-").map((n) => parseInt(n, 10));
+  if (!y || !m || !day) return iso;
+  const d = new Date(y, m - 1, day);
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return formatLocalISO(d);
 }
 
 export function newInvoice(business?: Business): Invoice {

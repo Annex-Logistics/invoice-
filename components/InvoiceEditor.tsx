@@ -148,13 +148,15 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   }
 
   function handleSaveToLibrary() {
-    const nonEmpty = invoice.items.filter((i) => i.description.trim() && Number(i.rate) > 0);
+    // Only a description is required — a rate of 0 is legitimate
+    // (free item, "included", etc.).
+    const nonEmpty = invoice.items.filter((i) => i.description.trim());
     if (nonEmpty.length === 0) {
-      alert("Add at least one line item with a description and rate first.");
+      alert("Add at least one line item with a description first.");
       return;
     }
     nonEmpty.forEach((item) => {
-      upsertItem({ id: createId(), description: item.description.trim(), rate: Number(item.rate) });
+      upsertItem({ id: createId(), description: item.description.trim(), rate: Number(item.rate) || 0 });
     });
     alert(`Saved ${nonEmpty.length} item${nonEmpty.length === 1 ? "" : "s"} to your library.`);
   }
