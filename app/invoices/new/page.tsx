@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { InvoiceEditor } from "@/components/InvoiceEditor";
 import type { Invoice } from "@/lib/types";
@@ -8,8 +8,13 @@ import { newInvoice } from "@/lib/storage";
 
 export default function NewInvoicePage() {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
+  // Guard against React StrictMode's dev-only double-effect which would
+  // otherwise burn an invoice number (the counter is bumped eagerly).
+  const didInitRef = useRef(false);
 
   useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
     setInvoice(newInvoice());
   }, []);
 

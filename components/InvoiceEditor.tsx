@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -56,22 +56,48 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
     !!(initialInvoice.shipTo && (initialInvoice.shipTo.name || initialInvoice.shipTo.address))
   );
   const [saved, setSaved] = useState<"idle" | "saving" | "saved">("idle");
+  const [showLibrary, setShowLibrary] = useState(false);
 
   const totals = useMemo(() => calcTotals(invoice), [invoice]);
 
-  // Auto-save (debounced)
+  // Auto-save (debounced) — skip the first render so just opening an
+  // invoice doesn't bump its updatedAt or flash "Saving...".
+  const didMountRef = useRef(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Only propagate business changes to the GLOBAL store when the user
+  // actually edited them here. Otherwise opening an older invoice and
+  // editing anything would overwrite newer Settings → business info.
+  const initialBusinessRef = useRef(JSON.stringify(initialInvoice.business));
   useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
     setSaved("saving");
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
     const t = setTimeout(() => {
       upsertInvoice(invoice);
-      saveBusiness(invoice.business);
+      const bizSnapshot = JSON.stringify(invoice.business);
+      if (bizSnapshot !== initialBusinessRef.current) {
+        saveBusiness(invoice.business);
+        initialBusinessRef.current = bizSnapshot;
+      }
       setSaved("saved");
-      const hide = setTimeout(() => setSaved("idle"), 1200);
-      return () => clearTimeout(hide);
+      hideTimerRef.current = setTimeout(() => setSaved("idle"), 1200);
     }, 500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoice]);
+
+  useEffect(
+    () => () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    },
+    []
+  );
 
   function patch<K extends keyof Invoice>(key: K, value: Invoice[K]) {
     setInvoice((prev) => ({ ...prev, [key]: value }));
@@ -134,20 +160,21 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   }
 
   function handleInsertFromLibrary() {
-    const library = loadItems();
-    if (library.length === 0) {
-      alert("Your item library is empty — save line items first from the quick actions.");
-      return;
+    setShowLibrary(true);
+  }
+
+  function insertLibraryItem(description: string, rate: number) {
+    const current = invoice.items;
+    // If the only line is empty, replace it instead of appending.
+    if (current.length === 1 && !current[0].description && !current[0].rate) {
+      setItems([{ id: createId(), description, quantity: 1, rate }]);
+    } else {
+      setItems([
+        ...current,
+        { id: createId(), description, quantity: 1, rate },
+      ]);
     }
-    const picks = library.slice(0, 10).map((it, i) => `${i + 1}. ${it.description} — ${it.rate}`).join("\n");
-    const choice = window.prompt(`Pick an item to add (1-${Math.min(10, library.length)}):\n${picks}`);
-    const idx = choice ? parseInt(choice, 10) - 1 : -1;
-    const item = library[idx];
-    if (!item) return;
-    setItems([
-      ...invoice.items,
-      { id: createId(), description: item.description, quantity: 1, rate: item.rate },
-    ]);
+    setShowLibrary(false);
   }
 
   return (
@@ -536,6 +563,14 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
           </div>
         </PreviewModal>
       )}
+
+      {showLibrary && (
+        <LibraryModal
+          onClose={() => setShowLibrary(false)}
+          onPick={insertLibraryItem}
+          currencySymbol={invoice.currency.symbol}
+        />
+      )}
     </div>
   );
 }
@@ -610,8 +645,21 @@ function TotalsAdjustmentRow({
 }
 
 function PreviewModal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
-    <div className="no-print fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-950/50 p-4">
+    <div
+      className="no-print fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-950/50 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
       <div
         className="my-8 w-full max-w-3xl overflow-hidden rounded-xl bg-white shadow-pop"
         onClick={(e) => e.stopPropagation()}
@@ -621,6 +669,91 @@ function PreviewModal({ children, onClose }: { children: React.ReactNode; onClos
           <button className="btn-ghost -mr-2" onClick={onClose}>Close</button>
         </div>
         {children}
+      </div>
+    </div>
+  );
+}
+
+function LibraryModal({
+  onClose,
+  onPick,
+  currencySymbol,
+}: {
+  onClose: () => void;
+  onPick: (description: string, rate: number) => void;
+  currencySymbol: string;
+}) {
+  const [items, setItems] = useState<ReturnType<typeof loadItems>>([]);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    setItems(loadItems());
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? items.filter((it) => it.description.toLowerCase().includes(q))
+    : items;
+
+  return (
+    <div
+      className="no-print fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-950/50 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="my-16 w-full max-w-md overflow-hidden rounded-xl bg-white shadow-pop"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
+          <h3 className="text-sm font-semibold text-ink-900">Insert from library</h3>
+          <button className="btn-ghost -mr-2" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="border-b border-ink-100 p-3">
+          <input
+            autoFocus
+            className="field"
+            placeholder="Search your saved items…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+
+        {items.length === 0 ? (
+          <div className="p-6 text-center text-sm text-ink-500">
+            Your library is empty. Save items from the invoice editor, or add them in Settings.
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-6 text-center text-sm text-ink-500">No matches.</div>
+        ) : (
+          <ul className="max-h-80 divide-y divide-ink-100 overflow-y-auto">
+            {filtered.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => onPick(item.description, item.rate)}
+                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-ink-50"
+                >
+                  <span className="min-w-0 truncate text-sm text-ink-900">{item.description}</span>
+                  <span className="text-sm font-medium text-ink-700">
+                    {currencySymbol}
+                    {Number(item.rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

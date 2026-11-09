@@ -38,8 +38,10 @@ export function buildInvoiceMailto(invoice: Invoice): string {
 
   const body = lines.join("\n");
 
+  // Per RFC 6068, the mailto `to` is an addr-spec: do NOT percent-encode
+  // the `@`. Mail clients (Outlook especially) reject `user%40host`.
   const params = new URLSearchParams({ subject, body });
-  // URLSearchParams uses "+" for spaces; mailto clients expect %20
+  // URLSearchParams encodes spaces as `+`; mailto expects `%20`.
   const q = params.toString().replace(/\+/g, "%20");
-  return `mailto:${encodeURIComponent(to)}?${q}`;
+  return `mailto:${to}?${q}`;
 }

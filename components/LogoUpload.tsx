@@ -1,22 +1,67 @@
 "use client";
 
 import { Image as ImageIcon, X } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 type Props = {
   value?: string;
   onChange: (dataUrl: string | undefined) => void;
 };
 
+// Normalize whatever the user picks (PNG, JPEG, GIF, SVG, …) into a PNG
+// data URL, bounded to 512px on the long edge. This guarantees the logo
+// renders inside the exported PDF (jsPDF.addImage has no SVG support)
+// and keeps localStorage from filling up with multi-megabyte uploads.
+function normalizeToPng(src: string, maxDim = 512): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const w0 = img.naturalWidth || img.width;
+      const h0 = img.naturalHeight || img.height;
+      if (!w0 || !h0) return reject(new Error("empty image"));
+      const scale = Math.min(1, maxDim / Math.max(w0, h0));
+      const w = Math.max(1, Math.round(w0 * scale));
+      const h = Math.max(1, Math.round(h0 * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("no canvas context"));
+      ctx.drawImage(img, 0, 0, w, h);
+      try {
+        resolve(canvas.toDataURL("image/png"));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => reject(new Error("image load failed"));
+    img.src = src;
+  });
+}
+
 export function LogoUpload({ value, onChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
 
   function onPick(file: File | undefined) {
     if (!file) return;
-    if (!file.type.startsWith("image/")) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Please choose an image file.");
+      return;
+    }
+    setError(null);
     const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") onChange(reader.result);
+    reader.onload = async () => {
+      if (typeof reader.result !== "string") return;
+      try {
+        const png = await normalizeToPng(reader.result);
+        onChange(png);
+      } catch {
+        // Fall back to the raw data URL if canvas rasterization fails —
+        // the preview still works even when the PDF exporter can't use it.
+        onChange(reader.result);
+        setError("We couldn't convert this image for PDF export. The preview will still show it.");
+      }
     };
     reader.readAsDataURL(file);
   }
@@ -40,7 +85,10 @@ export function LogoUpload({ value, onChange }: Props) {
           />
           <button
             type="button"
-            onClick={() => onChange(undefined)}
+            onClick={() => {
+              onChange(undefined);
+              setError(null);
+            }}
             className="absolute -right-2 -top-2 rounded-full bg-white p-1 text-ink-500 shadow ring-1 ring-ink-200 hover:text-rose-600"
             aria-label="Remove logo"
           >
@@ -57,6 +105,7 @@ export function LogoUpload({ value, onChange }: Props) {
           <span className="text-[10px] font-medium uppercase tracking-wide">Logo</span>
         </button>
       )}
+      {error && <p className="mt-2 text-xs text-amber-600">{error}</p>}
     </div>
   );
 }
