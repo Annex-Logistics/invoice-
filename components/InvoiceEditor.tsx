@@ -236,14 +236,15 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                 <input
                   className="field-ghost text-lg font-semibold"
                   placeholder="Your business name"
+                  maxLength={200}
                   value={invoice.business.name}
                   onChange={(e) => patchBusiness({ name: e.target.value })}
                 />
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <input className="field-ghost" placeholder="Email"
+                  <input className="field-ghost" placeholder="Email" maxLength={320}
                     value={invoice.business.email}
                     onChange={(e) => patchBusiness({ email: e.target.value })} />
-                  <input className="field-ghost" placeholder="Phone"
+                  <input className="field-ghost" placeholder="Phone" maxLength={64}
                     value={invoice.business.phone}
                     onChange={(e) => patchBusiness({ phone: e.target.value })} />
                 </div>
@@ -251,10 +252,11 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                   rows={2}
                   className="field-ghost resize-none"
                   placeholder="Business address"
+                  maxLength={500}
                   value={invoice.business.address}
                   onChange={(e) => patchBusiness({ address: e.target.value })}
                 />
-                <input className="field-ghost" placeholder="Website"
+                <input className="field-ghost" placeholder="Website" maxLength={300}
                   value={invoice.business.website}
                   onChange={(e) => patchBusiness({ website: e.target.value })} />
               </div>
@@ -262,7 +264,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
               <div className="space-y-3 md:border-l md:border-ink-100 md:pl-5">
                 <div>
                   <label className="label">Invoice #</label>
-                  <input className="field"
+                  <input className="field" maxLength={64}
                     value={invoice.number}
                     onChange={(e) => patch("number", e.target.value)} />
                 </div>
@@ -282,7 +284,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                 </div>
                 <div>
                   <label className="label">PO #</label>
-                  <input className="field"
+                  <input className="field" maxLength={64}
                     value={invoice.poNumber ?? ""}
                     onChange={(e) => patch("poNumber", e.target.value)} />
                 </div>
@@ -296,16 +298,16 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
               <div>
                 <h3 className="mb-3 text-sm font-semibold text-ink-900">Bill To</h3>
                 <div className="space-y-2">
-                  <input className="field" placeholder="Client / company name"
+                  <input className="field" placeholder="Client / company name" maxLength={200}
                     value={invoice.billTo.name}
                     onChange={(e) => patchBillTo({ name: e.target.value })} />
-                  <input className="field" placeholder="Email"
+                  <input className="field" type="email" placeholder="Email" maxLength={320}
                     value={invoice.billTo.email}
                     onChange={(e) => patchBillTo({ email: e.target.value })} />
-                  <input className="field" placeholder="Phone"
+                  <input className="field" placeholder="Phone" maxLength={64}
                     value={invoice.billTo.phone}
                     onChange={(e) => patchBillTo({ phone: e.target.value })} />
-                  <textarea rows={3} className="field resize-none" placeholder="Billing address"
+                  <textarea rows={3} className="field resize-none" placeholder="Billing address" maxLength={500}
                     value={invoice.billTo.address}
                     onChange={(e) => patchBillTo({ address: e.target.value })} />
                 </div>
@@ -324,16 +326,16 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                 </div>
                 {showShipTo ? (
                   <div className="space-y-2">
-                    <input className="field" placeholder="Name"
+                    <input className="field" placeholder="Name" maxLength={200}
                       value={invoice.shipTo?.name ?? ""}
                       onChange={(e) => patchShipTo({ name: e.target.value })} />
-                    <input className="field" placeholder="Email"
+                    <input className="field" type="email" placeholder="Email" maxLength={320}
                       value={invoice.shipTo?.email ?? ""}
                       onChange={(e) => patchShipTo({ email: e.target.value })} />
-                    <input className="field" placeholder="Phone"
+                    <input className="field" placeholder="Phone" maxLength={64}
                       value={invoice.shipTo?.phone ?? ""}
                       onChange={(e) => patchShipTo({ phone: e.target.value })} />
-                    <textarea rows={3} className="field resize-none" placeholder="Shipping address"
+                    <textarea rows={3} className="field resize-none" placeholder="Shipping address" maxLength={500}
                       value={invoice.shipTo?.address ?? ""}
                       onChange={(e) => patchShipTo({ address: e.target.value })} />
                   </div>
@@ -398,6 +400,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                   rows={3}
                   className="field resize-none"
                   placeholder="Thank you for your business."
+                  maxLength={2000}
                   value={invoice.notes}
                   onChange={(e) => patch("notes", e.target.value)}
                 />
@@ -408,6 +411,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                   rows={3}
                   className="field resize-none"
                   placeholder="Payment due in 14 days. Late payments subject to 1.5% monthly interest."
+                  maxLength={5000}
                   value={invoice.terms}
                   onChange={(e) => patch("terms", e.target.value)}
                 />

@@ -52,6 +52,7 @@ export function LineItemsTable({ items, currency, onChange }: Props) {
                   value={item.description}
                   onChange={(e) => patchItem(item.id, { description: e.target.value })}
                   placeholder="Item description"
+                  maxLength={500}
                   className="field-ghost min-h-[36px]"
                 />
               </div>
