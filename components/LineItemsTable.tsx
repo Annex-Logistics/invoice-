@@ -52,6 +52,7 @@ export function LineItemsTable({ items, currency, onChange }: Props) {
                   value={item.description}
                   onChange={(e) => patchItem(item.id, { description: e.target.value })}
                   placeholder="Item description"
+                  aria-label="Item description"
                   maxLength={500}
                   className="field-ghost min-h-[36px]"
                 />
@@ -63,6 +64,7 @@ export function LineItemsTable({ items, currency, onChange }: Props) {
                   min={0}
                   step="any"
                   value={item.quantity}
+                  aria-label="Quantity"
                   onChange={(e) => patchItem(item.id, { quantity: parseFloat(e.target.value) || 0 })}
                   className="field-ghost text-right md:w-20"
                 />
@@ -74,6 +76,7 @@ export function LineItemsTable({ items, currency, onChange }: Props) {
                   min={0}
                   step="any"
                   value={item.rate}
+                  aria-label="Rate"
                   onChange={(e) => patchItem(item.id, { rate: parseFloat(e.target.value) || 0 })}
                   className="field-ghost text-right md:w-28"
                 />

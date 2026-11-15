@@ -1,5 +1,5 @@
 import type { Invoice } from "./types";
-import { calcTotals } from "./totals";
+import { calcTotals, sumPayments } from "./totals";
 import { formatMoney } from "./currencies";
 
 // Strip anything the mailto scheme can't carry in an addr-spec,
@@ -24,8 +24,9 @@ export function buildInvoiceMailto(invoice: Invoice): string {
   lines.push(`Issue date: ${invoice.issueDate}`);
   lines.push(`Due date:   ${invoice.dueDate}`);
   lines.push(`Total:      ${formatMoney(totals.total, invoice.currency)}`);
-  if (invoice.amountPaid > 0) {
-    lines.push(`Amount paid: ${formatMoney(invoice.amountPaid, invoice.currency)}`);
+  const paid = sumPayments(invoice);
+  if (paid > 0) {
+    lines.push(`Amount paid: ${formatMoney(paid, invoice.currency)}`);
     lines.push(`Balance due: ${formatMoney(totals.balanceDue, invoice.currency)}`);
   }
   lines.push("");

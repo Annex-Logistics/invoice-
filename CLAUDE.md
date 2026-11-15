@@ -231,14 +231,31 @@ npm run dev     # http://localhost:3100, HMR-safe CSP
 npm run build   # Must pass before pushing (CI runs it too)
 npm start       # Serve the build: the only way to see the strict CSP
 npm run lint
+npm run test:unit   # pure-function tests, no server needed
+npm run test:e2e    # needs `npm run build` first; boots `next start` on 3110
 ```
 
-There is **no test suite yet**. The verification pattern used across
-the last few sessions is Playwright scripts kept in
-`/tmp/.../scratchpad/` (session-scoped, not committed) — they boot
-the dev server, navigate the UI, and save screenshots. If you want
-to promote them into the repo, drop them under `tests/` and wire up
-`@playwright/test` — package.json dev deps don't currently include it.
+Tests use `@playwright/test` for both layers (one runner, one config:
+`playwright.config.ts`):
+
+- `tests/unit/` — `calcTotals`, `sumPayments`, backup parsing
+  (round-trip, prototype pollution, bad logos), mailto building.
+- `tests/e2e/` — runs against the **production build** so the strict
+  CSP is in force. Every route must hydrate with zero console errors
+  (a CSP violation is a console error), every `<script>` must carry
+  the response's nonce, plus flows: create invoice → record payment →
+  mark sent, PDF download, estimate → invoice, backup export/import.
+
+First run on a new machine: `npx playwright install chromium`.
+CI runs unit tests in the build job and e2e in its own job, uploading
+the Playwright report on failure.
+
+**Backups must carry every storage key.** `exportData()` in
+`app/settings/page.tsx` and `parseBackup()` in `lib/import.ts` must
+cover every collection and every field. Until Nov 2026 they silently
+dropped estimates, clients and payment history. Any new collection or
+field (clientId, recurring schedules, businesses…) needs adding to
+both, plus a case in `tests/unit/backup.spec.ts`.
 
 For a dev smoke test: load `/` → click **Load sample data** → the
 dashboard, invoice list, clients, and reports pages should all
@@ -286,9 +303,8 @@ session carries.
 Nothing shipping broken, but these are obvious follow-ups the next
 session can take on:
 
-1. **No real test suite.** Promote the scratchpad Playwright flows
-   into `tests/e2e/` with `@playwright/test`, and have CI run them
-   against a built app.
+1. ~~**No real test suite.**~~ Done (Nov 2026): `tests/unit` + `tests/e2e`
+   with `@playwright/test`, run in CI against the production build.
 2. **Clients attribution is heuristic.** Reports and client cards
    match an invoice's bill-to to a saved client by email, then name,
    case-insensitive. Add a nullable `clientId` on `Invoice` and have

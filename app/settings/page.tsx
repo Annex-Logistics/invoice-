@@ -11,11 +11,15 @@ import {
   defaultPrefs,
   emptyBusiness,
   loadBusiness,
+  loadClients,
+  loadEstimates,
   loadInvoices,
   loadItems,
   loadPrefs,
   removeItem,
   saveBusiness,
+  saveClients,
+  saveEstimates,
   saveInvoices,
   saveItems,
   savePrefs,
@@ -70,10 +74,13 @@ export default function SettingsPage() {
     const payload = {
       exportedAt: new Date().toISOString(),
       app: "AnnexInvoice",
+      version: 2,
       business: loadBusiness(),
       prefs: loadPrefs(),
       items: loadItems(),
       invoices: loadInvoices(),
+      estimates: loadEstimates(),
+      clients: loadClients(),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -113,6 +120,12 @@ export default function SettingsPage() {
         if (result.invoices) {
           saveInvoices(result.invoices);
         }
+        if (result.estimates) {
+          saveEstimates(result.estimates);
+        }
+        if (result.clients) {
+          saveClients(result.clients);
+        }
         const msg =
           "Imported successfully." +
           (result.warnings.length ? "\n\n" + result.warnings.join("\n") : "");
@@ -126,8 +139,10 @@ export default function SettingsPage() {
   }
 
   function resetAll() {
-    if (!confirm("Erase all invoices, items, business info, and preferences? This cannot be undone.")) return;
+    if (!confirm("Erase all invoices, estimates, clients, items, business info, and preferences? This cannot be undone.")) return;
     saveInvoices([]);
+    saveEstimates([]);
+    saveClients([]);
     saveItems([]);
     savePrefs(defaultPrefs());
     saveBusiness(emptyBusiness());
