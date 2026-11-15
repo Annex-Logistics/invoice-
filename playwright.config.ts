@@ -12,6 +12,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
+  // Each e2e worker runs its own Chromium. On a machine short of memory
+  // the default (half the cores) crashes tabs; pass --workers=2 locally
+  // if you see "Target crashed" or heap errors.
+  workers: process.env.CI ? 2 : undefined,
+  expect: { timeout: 10_000 },
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: `http://localhost:${PORT}`,

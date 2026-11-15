@@ -12,22 +12,29 @@ moved to the Annex-Logistics org in Nov 2026.)
 
 ## What this is
 
-A clean, browser-based invoice **and** estimate builder, modelled on
-the feature set of app.invoicesimple.com but as an original
-implementation — no backend, no login, no telemetry. Everything runs
-client-side in Next.js and persists to `localStorage` under the
-`annexinvoice.*` key namespace. The design is a brand-blue, Inter-based
-dashboard with a left sidebar on desktop and a bottom-nav on mobile.
+A clean, browser-based builder for invoices, estimates, receipts and
+delivery notes, modelled on the feature set of app.invoicesimple.com
+but as an original implementation — no backend, no login, no
+telemetry, no third-party requests. Everything runs client-side in
+Next.js and persists to `localStorage` under the `annexinvoice.*` key
+namespace. Brand-blue, Inter-based UI with light and dark themes, a
+left sidebar on desktop and a bottom nav (plus a More menu) on mobile.
 
-Two sibling document types share one editor, one preview, and one PDF
-exporter:
+Four document kinds share one editor, one preview and one PDF
+exporter. `lib/docTypes.ts` describes how each behaves:
 
-- **Invoices** — statuses `draft | sent | paid | overdue`, payments
-  tracked as an array of `{ date, method, amount, note }` records.
-- **Estimates** — statuses `draft | sent | accepted | declined`, due
-  date is relabeled "Valid until", no payment UI, and a primary
-  **Convert to invoice** action that spawns a fresh `/invoices/[id]`
-  from the estimate without destroying the source.
+- **Invoices** — `draft | sent | paid | overdue`; payments are an
+  array of `{ date, method, amount, note }`; can repeat on a schedule.
+- **Estimates** — `draft | sent | accepted | declined`; the second
+  date is "Valid until"; **Convert to invoice** keeps the estimate.
+- **Receipts** — `draft | issued`; one date; show payments. Created
+  blank or from an invoice.
+- **Delivery notes** — `draft | sent | delivered`; quantities only,
+  no prices; signature lines. Created blank or from an invoice.
+
+It supports several businesses in one browser (each with its own
+brand, numbering, defaults and documents), saved clients and items,
+reports by period and currency, and JSON backups.
 
 ---
 
@@ -58,52 +65,69 @@ Node 22 for CI; 20 or newer should work locally.
 
 ```
 app/
-  layout.tsx              # <html>/<body>/fonts; global metadata
+  layout.tsx              # <html>, theme script, font preload; force-dynamic
   page.tsx                # Dashboard: stat tiles + recent invoices
-  globals.css             # Tailwind + .field/.btn/.card tokens, @media print
+  globals.css             # Fonts, theme tokens (light/dark), .field/.btn/.card, print
   not-found.tsx           # 404
-  invoices/
-    page.tsx              # Invoice list (status tabs + search)
-    new/page.tsx          # Creates an invoice via newInvoice()
-    [id]/page.tsx         # Loads an existing invoice (keyed remount)
-  estimates/              # Same shape as invoices/
-    page.tsx
-    new/page.tsx
-    [id]/page.tsx
+  invoices/               # page.tsx (list), new/page.tsx, [id]/page.tsx
+  estimates/              # same shape as invoices/
+  receipts/               # one-line routes -> components/DocumentPages.tsx
+  delivery-notes/         # one-line routes -> components/DocumentPages.tsx
+  recurring/page.tsx      # Repeating-invoice schedules
   clients/page.tsx        # Full CRUD, cards + edit modal
-  reports/page.tsx        # Stats, 12-mo bar chart, outstanding, tax
-  settings/page.tsx       # Brand, invoice/estimate defaults, item
-                          # library, data export/import/reset
+  reports/page.tsx        # Period + currency pickers, chart, outstanding, tax
+  settings/page.tsx       # Brand, defaults, item library, appearance,
+                          # businesses, data export/import/reset
 
 components/
-  AppShell.tsx            # Sidebar + MobileNav + KeyboardShortcuts
-  Sidebar.tsx             # Desktop nav
-  MobileNav.tsx           # Top bar + bottom nav on phones
-  KeyboardShortcuts.tsx   # N / Shift+N / g then d/i/e/c/r/s
+  AppShell.tsx            # Sidebar + MobileNav + shortcuts; runs due
+                          # recurring schedules on every page load
+  Sidebar.tsx             # Desktop nav + business switcher
+  MobileNav.tsx           # Top bar, bottom nav, More menu
+  BusinessSwitcher.tsx    # Switch / add business
+  KeyboardShortcuts.tsx   # N / Shift+N / g then d,i,e,c,r,s,p,t
   Logo.tsx                # Inline SVG wordmark
   StatusBadge.tsx         # Renders every DocumentStatus value
-  LogoUpload.tsx          # Image → PNG rasterizer (canvas), 8MB cap
-  LineItemsTable.tsx      # Qty/rate/amount editor
-  InvoiceEditor.tsx       # The big one. Handles BOTH kinds.
-  InvoicePreview.tsx      # Shared print/preview component
+  LogoUpload.tsx          # Image -> PNG rasterizer (canvas), 8MB cap
+  LineItemsTable.tsx      # Qty/rate/amount editor (showPrices prop)
+  InvoiceEditor.tsx       # The big one. Handles ALL document kinds.
+  InvoicePreview.tsx      # Shared print/preview (.paper: always light)
+  RecurringModal.tsx      # Create / edit / stop a schedule
+  DocumentPages.tsx       # Generic list / new / edit pages by kind
 
 lib/
-  types.ts                # Invoice, Client, Payment, InvoicePrefs...
-  currencies.ts           # 15 currencies + formatMoney
+  types.ts                # Invoice, Client, Payment, RecurringSchedule,
+                          # BusinessProfile...
+  docTypes.ts             # Per-kind config: labels, statuses, dates,
+                          # payments / prices / signature
+  storage.ts              # All localStorage CRUD, numbering, businesses,
+                          # recurring runner
   totals.ts               # calcTotals + sumPayments
-  storage.ts              # All localStorage CRUD + migration helpers
-  pdf.ts                  # jsPDF exporter (handles both kinds)
+  reports.ts              # Date ranges, currency grouping, summaries, buckets
+  recurring.ts            # Pure schedule maths
+  clients.ts              # matchClient(): clientId, then email, then name
+  theme.ts                # Light / dark / system
+  currencies.ts           # 15 currencies + formatMoney
+  pdf.ts                  # jsPDF exporter with embedded Inter
   email.ts                # buildInvoiceMailto (RFC-6068 safe)
   import.ts               # Hardened backup JSON parser
   sample.ts               # Three demo invoices for the dashboard CTA
 
+public/
+  theme-init.js           # Sets .dark before first paint (nonce'd)
+  fonts/                  # Inter woff2 (UI) + ttf (PDF) + OFL licence
+
+tests/
+  unit/                   # Pure-function tests
+  e2e/                    # Browser tests against the production build
+
 proxy.ts                  # Per-request nonce CSP (was middleware.ts)
 eslint.config.mjs         # ESLint 9 flat config
-next.config.js            # Non-CSP security headers
+playwright.config.ts      # unit + e2e projects, e2e server on :3110
 .github/
-  workflows/ci.yml        # Lint, build, npm audit
+  workflows/ci.yml        # Lint, build, unit, e2e, npm audit
   dependabot.yml          # Weekly npm + actions updates
-SECURITY.md               # Full audit against the vibe-code checklist
+SECURITY.md               # Audit against the vibe-code checklist
 README.md                 # User-facing
 LICENSE                   # MIT
 ```
@@ -118,16 +142,14 @@ Both documents are the same `Invoice` type with a `kind` discriminator
 (`"invoice" | "estimate"`). The field is optional for backward compat;
 `loadInvoices()` normalizes missing `kind` to `"invoice"` on read.
 Estimates live in a separate storage key (`annexinvoice.estimates.v1`)
-with their own counter. The shared editor branches on
-`invoice.kind === "estimate"` to swap labels, status options, hide the
-payments section, and swap the primary top-bar button.
+with their own counter. The shared editor reads `docType(kind)` from
+`lib/docTypes.ts` for labels, status options, dates, and whether to
+show payments and prices.
 
-If you add another doc type (receipts, purchase orders, delivery
-notes), follow this same pattern: extend `DocumentKind`, add a storage
-key + counter + `newX()` helper + `upsertX`/`removeX`/`duplicateX`,
-wire `upsertDocument`/`removeDocument`/`duplicateDocument` kind-aware
-dispatchers, and add pages that pass an initialX through to
-`InvoiceEditor`.
+Receipts and delivery notes came later and use a generic store
+(`loadDocs(kind)` / `saveDocs(kind)` in `lib/storage.ts`) plus
+`lib/docTypes.ts`. To add another kind, follow the recipe under
+"Backlog" item 8 below, not the older invoice/estimate functions.
 
 ### 2. Payments are an array, legacy single field still works
 
@@ -277,33 +299,28 @@ session carries.
 
 ## What's done
 
-- Dashboard, invoice list, estimate list, clients CRUD, reports,
-  settings
-- Full invoice/estimate editor with auto-save, duplicate, delete,
-  preview modal, email, PDF export, mark-as-sent, convert-to-invoice
-- Payments history with record-payment UI, PDF + preview rendering
-- Client picker modal + save-as-client from the Bill To section
-- Item library (save/pick saved items)
-- Logo upload with canvas rasterization and size cap
-- Invoice numbering defaults (prefix, next number, padding) separate
-  for invoices and estimates
-- 15 currencies, segmented %/$ toggle for discount and tax
-- Reports: monthly billing bar chart, outstanding-by-client, tax
-  collected
-- JSON backup export + hardened import
-- Keyboard shortcuts (N, Shift+N, g then d/i/e/c/r/s)
-- Responsive (desktop sidebar, mobile bottom nav)
-- Print preview with @page: Letter / margin: 0
-- Not-found page
-- Full security headers in prod, dev-safe CSP
-- Dependabot + CI
-- SECURITY.md audit report
-- Next 16 / React 19 / jsPDF 4 upgrade, ESLint 9 config, production CSP fix (Nov 2026)
+- Dashboard, lists and editor for invoices, estimates, receipts and
+  delivery notes; clients CRUD; reports; settings
+- Editor: auto-save, duplicate, delete, preview, email, PDF export,
+  mark-as-sent, convert estimate to invoice, create receipt / delivery
+  note from an invoice
+- Payments history; client picker with a stable `clientId` link
+- Recurring invoices (lazy, catch-up on app load)
+- Multiple businesses with separate numbering and documents
+- Reports by period and currency; never sums across currencies
+- Item library; logo upload with canvas rasterization and size cap
+- Light / dark / system theme
+- PDFs with embedded Inter (Naira and non-Latin names print correctly)
+- JSON backup v3 (every collection, every business) + hardened import
+- Keyboard shortcuts; responsive with a mobile More menu
+- Strict production CSP: nonce'd scripts, no inline styles, no
+  third-party requests; self-hosted fonts
+- Next 16 / React 19 / jsPDF 4; ESLint 9; Dependabot + CI
+- Test suite: unit + e2e against the production build
 
-## Known rough edges / good next steps
+## Backlog from the original handover (all done)
 
-Nothing shipping broken, but these are obvious follow-ups the next
-session can take on:
+Kept because each entry records how the feature works.
 
 1. ~~**No real test suite.**~~ Done (Nov 2026): `tests/unit` + `tests/e2e`
    with `@playwright/test`, run in CI against the production build.
@@ -396,8 +413,40 @@ session can take on:
    splits on newlines and wraps. **Check PDF changes by eye**: generate
    one with a Naira invoice and a multi-line address and open it; the
    e2e tests only assert structure (valid PDF, font embedded).
-10. **Timezone of dueDate comparisons.** Already fixed, but worth a
-    pass with a user at a non-UTC offset.
+10. ~~**Timezone of dueDate comparisons.**~~ Checked (Nov 2026). All
+    calendar maths uses local dates. `tests/e2e/timezone.spec.ts` pins
+    the clock to moments where local and UTC dates differ (Lagos just
+    after midnight, Los Angeles late evening, a month boundary) and
+    checks new-invoice dates, overdue, recurring runs and reports.
+
+## Open items / good next steps
+
+1. **CI has never run on GitHub.** This repo is a fork of
+   `patricku-cpu/invoice`, and GitHub disables workflows on forks until
+   an owner opens the **Actions** tab and enables them. Every CI step
+   passes locally on Windows; the Linux run is unverified.
+2. **Defaults are US-flavoured.** New installs default to USD, 0% tax
+   and Letter-size PDFs/print; sample data uses US addresses and sales
+   tax. For Annex (Nigeria) consider NGN, VAT 7.5% and A4. A product
+   decision, so left alone.
+3. **Receipt / delivery-note prefixes aren't editable.** `REC-` and
+   `DN-` are fixed in `lib/docTypes.ts`; invoices and estimates have
+   Settings fields.
+4. **Storage ceiling.** Everything is in `localStorage` (5–10 MB per
+   origin) and each document snapshots the business, logo included. A
+   busy user will hit the quota (there is an alert). IndexedDB, or
+   storing the logo once per business, would lift it.
+5. **One browser only.** No sync between devices; backups are manual.
+   A reminder to export, or optional cloud sync, is the natural step.
+6. **`react-hooks/set-state-in-effect` is off** (see 6a). A
+   `useSyncExternalStore` store would let it back on and remove the
+   page reload when switching business.
+7. **8 moderate `npm audit` findings** in dev-only lint tooling
+   (`minimatch` under typescript-eslint). Below CI's threshold; will
+   clear when upstream updates.
+8. **No deployment is configured.** It needs a Node host (pages render
+   per request for the CSP nonce); a static export would need the CSP
+   reworked to hashes.
 
 ---
 
