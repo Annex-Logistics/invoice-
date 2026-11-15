@@ -7,6 +7,7 @@ import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { KeyboardShortcuts } from "./KeyboardShortcuts";
 import { runDueSchedules } from "@/lib/storage";
+import { watchSystemTheme } from "@/lib/theme";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [generated, setGenerated] = useState(0);
@@ -17,6 +18,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setGenerated(runDueSchedules());
   }, []);
+
+  // Follow the OS light/dark setting live when the theme is "system".
+  useEffect(() => watchSystemTheme(), []);
 
   return (
     <div className="flex min-h-screen bg-ink-50">

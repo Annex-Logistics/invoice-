@@ -279,8 +279,13 @@ export function loadBusiness(): Business {
   }
 }
 
+// Fired after the active business's details change, so live UI (the
+// business switcher) can refresh without a reload.
+export const BUSINESS_CHANGED_EVENT = "annexinvoice:business-changed";
+
 export function saveBusiness(business: Business) {
   safeSet(BUSINESS_KEY, JSON.stringify(business));
+  if (isBrowser()) window.dispatchEvent(new Event(BUSINESS_CHANGED_EVENT));
 }
 
 /**
@@ -683,11 +688,16 @@ export function listBusinesses(): BusinessProfile[] {
 }
 
 function activate(target: BusinessProfile) {
-  saveBusiness(target.business);
+  // Order matters. saveBusiness() fires BUSINESS_CHANGED_EVENT, whose
+  // listeners call syncActiveProfile(), which copies the live keys into
+  // whichever profile is marked current. So mark the target current
+  // first and write the business last, when every key is consistent;
+  // otherwise the target's details get copied onto the previous business.
+  safeSet(CURRENT_BUSINESS_KEY, target.id);
   savePrefs(target.prefs);
   safeSet(COUNTER_KEY, String(target.counter));
   safeSet(EST_COUNTER_KEY, String(target.estimateCounter));
-  safeSet(CURRENT_BUSINESS_KEY, target.id);
+  saveBusiness(target.business);
 }
 
 export function switchBusiness(id: string): boolean {

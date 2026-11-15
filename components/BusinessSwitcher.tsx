@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Building2, Check, ChevronsUpDown, Plus, Settings } from "lucide-react";
 import type { BusinessProfile } from "@/lib/types";
-import { addBusiness, getCurrentBusinessId, listBusinesses, switchBusiness } from "@/lib/storage";
+import {
+  BUSINESS_CHANGED_EVENT,
+  addBusiness,
+  getCurrentBusinessId,
+  listBusinesses,
+  switchBusiness,
+} from "@/lib/storage";
 
 // Every page reads storage once on mount, so after switching or adding a
 // business we reload: the simplest way to guarantee nothing shows the
@@ -20,8 +26,14 @@ export function BusinessSwitcher({ compact = false }: { compact?: boolean }) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setProfiles(listBusinesses());
-    setCurrentId(getCurrentBusinessId());
+    const refresh = () => {
+      setProfiles(listBusinesses());
+      setCurrentId(getCurrentBusinessId());
+    };
+    refresh();
+    // e.g. renamed in Settings, or sample data filled in the details.
+    window.addEventListener(BUSINESS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(BUSINESS_CHANGED_EVENT, refresh);
   }, []);
 
   useEffect(() => {

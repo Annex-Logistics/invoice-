@@ -1,38 +1,43 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: "class",
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
   ],
   theme: {
     extend: {
+      // Every brand/ink shade (and `white`, used for surfaces) reads a CSS
+      // variable from app/globals.css, so `.dark` on <html> rethemes the
+      // whole app without dark: variants on each class.
       colors: {
+        white: "rgb(var(--white) / <alpha-value>)",
         brand: {
-          50:  "#eef6ff",
-          100: "#d9ebff",
-          200: "#bcdcff",
-          300: "#8ec5ff",
-          400: "#58a5ff",
-          500: "#2f85ff",
-          600: "#1866ea",
-          700: "#1450c2",
-          800: "#15449a",
-          900: "#163b7a",
-          950: "#0f254d",
+          50: "rgb(var(--brand-50) / <alpha-value>)",
+          100: "rgb(var(--brand-100) / <alpha-value>)",
+          200: "rgb(var(--brand-200) / <alpha-value>)",
+          300: "rgb(var(--brand-300) / <alpha-value>)",
+          400: "rgb(var(--brand-400) / <alpha-value>)",
+          500: "rgb(var(--brand-500) / <alpha-value>)",
+          600: "rgb(var(--brand-600) / <alpha-value>)",
+          700: "rgb(var(--brand-700) / <alpha-value>)",
+          800: "rgb(var(--brand-800) / <alpha-value>)",
+          900: "rgb(var(--brand-900) / <alpha-value>)",
+          950: "rgb(var(--brand-950) / <alpha-value>)",
         },
         ink: {
-          50:  "#f6f7f9",
-          100: "#eceef2",
-          200: "#d5d9e0",
-          300: "#b0b7c3",
-          400: "#838ea0",
-          500: "#636e82",
-          600: "#4e5768",
-          700: "#404654",
-          800: "#373c47",
-          900: "#1f232c",
-          950: "#0e1117",
+          50: "rgb(var(--ink-50) / <alpha-value>)",
+          100: "rgb(var(--ink-100) / <alpha-value>)",
+          200: "rgb(var(--ink-200) / <alpha-value>)",
+          300: "rgb(var(--ink-300) / <alpha-value>)",
+          400: "rgb(var(--ink-400) / <alpha-value>)",
+          500: "rgb(var(--ink-500) / <alpha-value>)",
+          600: "rgb(var(--ink-600) / <alpha-value>)",
+          700: "rgb(var(--ink-700) / <alpha-value>)",
+          800: "rgb(var(--ink-800) / <alpha-value>)",
+          900: "rgb(var(--ink-900) / <alpha-value>)",
+          950: "rgb(var(--ink-950) / <alpha-value>)",
         },
       },
       fontFamily: {

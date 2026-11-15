@@ -15,7 +15,7 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
   const paymentsList = invoice.payments ?? [];
 
   return (
-    <div className="print-page mx-auto max-w-[8.5in] bg-white p-8 text-ink-900">
+    <div className="paper print-page mx-auto max-w-[8.5in] bg-white p-8 text-ink-900">
       <div className="mb-6 h-1 w-full rounded-full bg-brand-600" />
 
       <div className="flex items-start justify-between gap-6">

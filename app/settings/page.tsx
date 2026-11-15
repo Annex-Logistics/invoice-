@@ -37,6 +37,7 @@ import {
   upsertItem,
 } from "@/lib/storage";
 import { parseBackup } from "@/lib/import";
+import { getTheme, setTheme, type ThemeChoice } from "@/lib/theme";
 
 export default function SettingsPage() {
   const [business, setBusiness] = useState<Business>(emptyBusiness());
@@ -47,6 +48,7 @@ export default function SettingsPage() {
   const [savedAt, setSavedAt] = useState<string>("");
   const [profiles, setProfiles] = useState<BusinessProfile[]>([]);
   const [currentBusinessId, setCurrentBusinessId] = useState("");
+  const [theme, setThemeChoice] = useState<ThemeChoice>("system");
 
   useEffect(() => {
     setBusiness(loadBusiness());
@@ -54,7 +56,13 @@ export default function SettingsPage() {
     setItems(loadItems());
     setProfiles(listBusinesses());
     setCurrentBusinessId(getCurrentBusinessId());
+    setThemeChoice(getTheme());
   }, []);
+
+  function chooseTheme(t: ThemeChoice) {
+    setTheme(t);
+    setThemeChoice(t);
+  }
 
   function switchTo(id: string) {
     if (switchBusiness(id)) window.location.reload();
@@ -359,6 +367,34 @@ export default function SettingsPage() {
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="card mt-6 p-5">
+          <h2 className="text-sm font-semibold text-ink-900">Appearance</h2>
+          <p className="mt-1 text-xs text-ink-500">
+            Saved on this device. Invoice previews, PDFs and prints always stay white.
+          </p>
+          <div
+            role="radiogroup"
+            aria-label="Theme"
+            className="mt-3 inline-flex gap-1 rounded-lg bg-ink-100 p-1"
+          >
+            {(["system", "light", "dark"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="radio"
+                aria-checked={theme === t}
+                onClick={() => chooseTheme(t)}
+                className={
+                  "rounded-md px-3 py-1.5 text-sm font-medium capitalize " +
+                  (theme === t ? "bg-white text-ink-900 shadow-sm" : "text-ink-600 hover:text-ink-900")
+                }
+              >
+                {t === "system" ? "Match system" : t}
+              </button>
+            ))}
+          </div>
         </section>
 
         <section id="businesses" className="card mt-6 scroll-mt-6 p-5">

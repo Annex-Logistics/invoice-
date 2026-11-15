@@ -343,9 +343,19 @@ session can take on:
    documents can be deleted. Backups are v3 (`businesses` +
    `currentBusinessId`); importing an older single-business backup
    replaces only the active business's documents.
-6. **Dark mode.** Not implemented. The color tokens are already
-   defined in `tailwind.config.ts`; would need a `prefers-color-scheme`
-   branch + `dark:` variants on the card/field classes.
+6. ~~**Dark mode.**~~ Done (Nov 2026). Settings → Appearance: match
+   system (default), light or dark; stored per device in
+   `annexinvoice.theme.v1`, not in backups. **How it works:** every
+   `brand-*` / `ink-*` shade and `white` in `tailwind.config.ts` reads
+   a CSS variable defined in `app/globals.css`; `.dark` on `<html>`
+   swaps the variable set, so components need no `dark:` variants.
+   Use the tokens (`bg-white`, `text-ink-900`, `border-ink-100`…) for
+   new UI and it themes itself. Fixed Tailwind colours (emerald, rose,
+   amber, blue) have explicit `.dark` overrides at the bottom of
+   `globals.css`: add one if you introduce a new fixed colour.
+   `.paper` (the invoice preview) and print always use the light set.
+   `public/theme-init.js` runs in `<head>` with the CSP nonce to avoid
+   a light flash; keep it in sync with `lib/theme.ts`.
 7. **Nonce-based CSP for styles.** Script-src is already nonce'd, but
    style-src still allows `'unsafe-inline'` for Tailwind. Could tighten
    with a custom PostCSS pass.

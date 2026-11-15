@@ -105,3 +105,10 @@ test("a full backup restores every business", async ({ page }) => {
   });
   expect(current).toBe("Second Biz");
 });
+
+test("the switcher shows a business's new name straight away", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: /Business: Untitled business/ }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Load sample data" }).click();
+  await expect(page.getByRole("button", { name: /Business: Annex Logistics/ }).first()).toBeVisible();
+});
