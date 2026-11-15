@@ -310,8 +310,13 @@ session can take on:
    client" chip can unlink it). `matchClient()` in `lib/clients.ts`
    uses the id first, then falls back to email/name for legacy records.
    Use `matchClient()` anywhere you attribute documents to clients.
-3. **Reports don't filter by date range.** Monthly chart shows last
-   12 months hard-coded. Add a range picker.
+3. ~~**Reports don't filter by date range.**~~ Done (Nov 2026): period
+   presets + custom range, and a currency picker. Logic lives in
+   `lib/reports.ts` (pure, unit-tested). **Never sum different
+   currencies**: reports and the dashboard tiles show one currency at
+   a time (most-used by default). The dashboard's Collected tile used
+   to read legacy `amountPaid` and ignore recorded payments; it now uses
+   `summarize()`.
 4. **Recurring invoices** — not implemented. Would need a schedule
    definition on `Invoice` + a `/recurring` section that generates
    new invoices on each fire. In a local-only app this would have to

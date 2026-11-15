@@ -178,3 +178,42 @@ test("picking a saved client links the invoice, and the link survives a rename",
   const card = page.locator(".card").filter({ hasText: "Ada Obi-Nwosu" });
   await expect(card).toContainText("Open latest invoice");
 });
+
+test("reports filter by period and never mix currencies", async ({ page }) => {
+  await loadSampleData(page);
+  // Add an NGN invoice: it must not be added into the USD totals.
+  await page.evaluate(() => {
+    const invoices = JSON.parse(localStorage.getItem("annexinvoice.invoices.v1")!);
+    invoices.push({
+      ...invoices[0],
+      id: "ngn-1",
+      number: "INV-0099",
+      currency: { code: "NGN", symbol: "₦", name: "Nigerian Naira" },
+      items: [{ id: "x", description: "Haulage", quantity: 1, rate: 500000 }],
+      taxValue: 0,
+      discountValue: 0,
+      shipping: 0,
+      payments: [],
+      amountPaid: 0,
+    });
+    localStorage.setItem("annexinvoice.invoices.v1", JSON.stringify(invoices));
+  });
+
+  await page.goto("/reports");
+  await expect(page.getByText("$6,250.80")).toBeVisible();
+  await expect(page.getByText("3 invoices in USD")).toBeVisible();
+
+  await page.getByLabel("Currency").selectOption("NGN");
+  await expect(page.getByText("1 invoice in NGN")).toBeVisible();
+  await expect(page.getByText("₦500,000.00").first()).toBeVisible();
+
+  await page.getByLabel("Currency").selectOption("USD");
+  await page.getByLabel("Period").selectOption("custom");
+  await page.getByLabel("From", { exact: true }).fill("2000-01-01");
+  await page.getByLabel("To", { exact: true }).fill("2000-12-31");
+  await expect(page.getByText("0 invoices in USD")).toBeVisible();
+
+  // The dashboard notes that other currencies exist.
+  await page.goto("/");
+  await expect(page.getByText(/see Reports for other currencies/)).toBeVisible();
+});
