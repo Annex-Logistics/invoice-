@@ -201,7 +201,7 @@ test("reports filter by period and never mix currencies", async ({ page }) => {
   });
 
   await page.goto("/reports");
-  await expect(page.getByText("$6,250.80")).toBeVisible();
+  await expect(page.getByText("$6,250.80", { exact: true })).toBeVisible();
   await expect(page.getByText("3 invoices in USD")).toBeVisible();
 
   await page.getByLabel("Currency").selectOption("NGN");
@@ -273,4 +273,25 @@ test("duplicating a paid invoice gives an unpaid draft", async ({ page }) => {
   );
   expect(copy.status).toBe("draft");
   expect(copy.payments).toEqual([]);
+});
+
+test("styles are locked down and nothing loads from third parties", async ({ page, request }) => {
+  const assertNoErrors = trackErrors(page);
+  const csp = (await request.get("/")).headers()["content-security-policy"] ?? "";
+  const styleSrc = /style-src ([^;]+)/.exec(csp)?.[1] ?? "";
+  expect(styleSrc).not.toContain("unsafe-inline");
+  expect(csp).not.toMatch(/googleapis|gstatic/);
+
+  const external: string[] = [];
+  page.on("request", (r) => {
+    const u = new URL(r.url());
+    if (u.protocol.startsWith("http") && u.hostname !== "localhost") external.push(r.url());
+  });
+  await loadSampleData(page);
+  await page.goto("/reports");
+  await expect(page.locator("svg rect.fill-brand-500").first()).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  expect(await page.evaluate(() => document.fonts.check('16px "Inter"'))).toBe(true);
+  expect(external).toEqual([]);
+  assertNoErrors();
 });

@@ -128,8 +128,10 @@ server actions, webhooks, or RPC endpoints.
   renders per request so Next.js can stamp that nonce on its scripts.
   Before this fix all routes were prerendered, so production scripts
   had no nonce and the CSP blocked them all.
-- **Caveat:** `style-src` still allows `'unsafe-inline'` for
-  Tailwind's style injection. Recorded here as a follow-up.
+- **Pass (styles, Nov 2026):** production `style-src` is `'self'` plus
+  the nonce, with no `'unsafe-inline'`. Fonts are self-hosted, so the
+  policy lists no external hosts and the app makes no third-party
+  requests.
 
 ### 9. File Uploads and Downloads
 

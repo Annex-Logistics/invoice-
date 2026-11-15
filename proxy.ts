@@ -15,13 +15,17 @@ export function proxy(request: NextRequest) {
     ? `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'unsafe-inline'`
     : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`;
   const connectSrc = isDev ? "connect-src 'self' ws: wss:" : "connect-src 'self'";
+  // Dev injects <style> tags for HMR. Production serves only built CSS
+  // files, so inline <style> and style="" attributes are both banned
+  // (the nonce covers any style tag Next.js itself emits). Don't add
+  // style={{...}} props: draw with SVG attributes or classes instead.
+  const styleSrc = isDev ? "style-src 'self' 'unsafe-inline'" : `style-src 'self' 'nonce-${nonce}'`;
 
   const csp = [
     "default-src 'self'",
     scriptSrc,
-    // Tailwind inlines its tokens via <style> at build time.
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com data:",
+    styleSrc,
+    "font-src 'self'",
     "img-src 'self' data: blob:",
     connectSrc,
     "frame-ancestors 'none'",

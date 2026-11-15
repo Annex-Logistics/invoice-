@@ -211,6 +211,8 @@ use these helpers, not raw `Date`.
 
 Full audit in `SECURITY.md`. Key invariants to preserve:
 - No `dangerouslySetInnerHTML` anywhere
+- No `style={{…}}` props (blocked by the production CSP)
+- No third-party requests (fonts are self-hosted)
 - No raw user input flowed into HTML attributes or `href`
 - Mailto `to` goes through `sanitizeEmailAddress()` (strips CRLF)
 - Logo uploads capped at 8 MB before `FileReader`
@@ -356,9 +358,13 @@ session can take on:
    `.paper` (the invoice preview) and print always use the light set.
    `public/theme-init.js` runs in `<head>` with the CSP nonce to avoid
    a light flash; keep it in sync with `lib/theme.ts`.
-7. **Nonce-based CSP for styles.** Script-src is already nonce'd, but
-   style-src still allows `'unsafe-inline'` for Tailwind. Could tighten
-   with a custom PostCSS pass.
+7. ~~**Nonce-based CSP for styles.**~~ Done (Nov 2026). Production
+   `style-src` is `'self' 'nonce-…'`: no `'unsafe-inline'`, so inline
+   `<style>` and `style=""` attributes are blocked. **Never use
+   `style={{…}}` props** (the reports chart draws bars with SVG
+   attributes instead). Inter is self-hosted from `public/fonts`
+   (variable woff2, latin + latin-ext, OFL licence alongside), so the
+   app makes no third-party requests at all; an e2e test asserts both.
 8. **Delivery note / receipt doc types.** The editor is already
    generic over `kind` — adding another kind is mechanical following
    the recipe in "Key architecture decisions" above.

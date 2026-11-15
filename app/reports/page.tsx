@@ -190,18 +190,22 @@ export default function ReportsPage() {
                     const colH = Math.max(2, Math.round((m.collected / maxBucket) * 100));
                     return (
                       <div key={m.key} className="flex flex-1 flex-col items-center gap-1">
-                        <div className="flex h-48 w-full items-end justify-center gap-0.5">
-                          <div
-                            className="w-2 rounded-t bg-brand-500"
-                            style={{ height: `${invH}%` }}
-                            title={`${m.label}: invoiced ${formatMoney(m.invoiced, displayCurrency)}`}
-                          />
-                          <div
-                            className="w-2 rounded-t bg-emerald-500"
-                            style={{ height: `${colH}%` }}
-                            title={`${m.label}: collected ${formatMoney(m.collected, displayCurrency)}`}
-                          />
-                        </div>
+                        {/* SVG attributes, not style={{}}: the production CSP
+                            bans inline styles. */}
+                        <svg
+                          className="h-48 w-[18px]"
+                          viewBox="0 0 18 100"
+                          preserveAspectRatio="none"
+                          role="img"
+                          aria-label={`${m.label}: invoiced ${formatMoney(m.invoiced, displayCurrency)}, collected ${formatMoney(m.collected, displayCurrency)}`}
+                        >
+                          <rect className="fill-brand-500" x="0" width="8" y={100 - invH} height={invH}>
+                            <title>{`${m.label}: invoiced ${formatMoney(m.invoiced, displayCurrency)}`}</title>
+                          </rect>
+                          <rect className="fill-emerald-500" x="10" width="8" y={100 - colH} height={colH}>
+                            <title>{`${m.label}: collected ${formatMoney(m.collected, displayCurrency)}`}</title>
+                          </rect>
+                        </svg>
                         <div
                           className={
                             "text-[10px] font-medium text-ink-500 " +
