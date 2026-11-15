@@ -192,7 +192,6 @@ function safeSet(key: string, value: string): boolean {
     // Most likely QuotaExceededError (5–10 MB per origin). Make the
     // failure visible instead of silently losing the write.
     if (typeof window !== "undefined") {
-      // eslint-disable-next-line no-console
       console.error("[AnnexInvoice] localStorage write failed", err);
       try {
         window.alert(

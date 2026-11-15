@@ -160,7 +160,6 @@ export async function exportInvoicePdf(invoice: Invoice) {
   const colDesc = margin;
   const colQty  = pageW - margin - 300;
   const colRate = pageW - margin - 190;
-  const colAmt  = pageW - margin - 80;
 
   doc.setFillColor(243, 245, 250);
   doc.rect(margin, tableTop, pageW - margin * 2, 24, "F");

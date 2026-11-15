@@ -108,7 +108,6 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
       hideTimerRef.current = setTimeout(() => setSaved("idle"), 1200);
     }, 500);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoice]);
 
   useEffect(

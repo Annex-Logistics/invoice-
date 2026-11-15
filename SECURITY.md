@@ -123,10 +123,13 @@ server actions, webhooks, or RPC endpoints.
 - **Pass (localStorage)** — Storage is used only for the app's own
   invoice data, as documented. No tokens are kept there, because there
   are no tokens.
-- **Caveat:** CSP currently allows `'unsafe-inline'` for scripts and
-  styles. This is required by Next.js's hydration bootstrap and
-  Tailwind's style injection. Moving to a nonce-based CSP would require
-  a custom middleware; it is deferred and recorded here.
+- **Pass (CSP, updated Nov 2026):** scripts use a per-request nonce
+  plus `'strict-dynamic'` (emitted by `proxy.ts`), and every route
+  renders per request so Next.js can stamp that nonce on its scripts.
+  Before this fix all routes were prerendered, so production scripts
+  had no nonce and the CSP blocked them all.
+- **Caveat:** `style-src` still allows `'unsafe-inline'` for
+  Tailwind's style injection. Recorded here as a follow-up.
 
 ### 9. File Uploads and Downloads
 

@@ -25,7 +25,7 @@ Create, preview, and download professional PDF invoices in minutes — all in yo
 
 ## Tech
 
-- [Next.js 14](https://nextjs.org/) (App Router) + TypeScript
+- [Next.js 16](https://nextjs.org/) (App Router) + React 19 + TypeScript
 - [Tailwind CSS](https://tailwindcss.com/)
 - [lucide-react](https://lucide.dev/) icons
 - [jsPDF](https://github.com/parallax/jsPDF) for PDF export
@@ -38,7 +38,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3100.
 
 ## Build for production
 

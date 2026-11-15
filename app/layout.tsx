@@ -1,6 +1,14 @@
 import "./globals.css";
 import type { Metadata } from "next";
 
+// Render every page per request. `proxy.ts` sends a nonce-based CSP
+// with a fresh nonce on each request, and Next.js can only stamp that
+// nonce onto its <script> tags when the page is rendered at request
+// time. Prerendered (static) pages ship scripts with no nonce, so the
+// production CSP would block all of them and the app would never
+// hydrate. The pages are thin client shells, so this costs little.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "AnnexInvoice — Simple invoicing by Annex Logistics",
   description:

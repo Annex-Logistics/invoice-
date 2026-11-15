@@ -4,8 +4,9 @@ This file is read automatically when you open a session in this repo.
 It tells you what the project is, what's built, how it's wired, and
 where to pick up.
 
-Repo: https://github.com/patricku-cpu/invoice (branch `main`)
-Owner: Annex Logistics (user: patricku-cpu)
+Repo: https://github.com/Annex-Logistics/invoice- (branch `main`)
+Owner: Annex Logistics. (Originally built at `patricku-cpu/invoice`;
+moved to the Annex-Logistics org in Nov 2026.)
 
 ---
 
@@ -32,18 +33,22 @@ exporter:
 
 ## Stack
 
-- **Next.js 14.2** (App Router) + TypeScript (strict)
+- **Next.js 16.4** (App Router, Turbopack) + **React 19** + TypeScript
+  (strict). Upgraded from 14.2 in Nov 2026 to clear critical
+  advisories; 14.x has no patched release.
 - **Tailwind CSS 3.4** — tokens defined in `tailwind.config.ts`
   (brand-\* and ink-\* scales)
 - **lucide-react** icons
-- **jsPDF 2.5** for text-first PDF export — no html2canvas, no
+- **jsPDF 4.2** for text-first PDF export — no html2canvas, no
   server-side rendering of the PDF
 - **localStorage** for everything, mediated by
   `safeSet()` in `lib/storage.ts` (handles quota-exceeded gracefully)
-- Response headers via `middleware.ts` (nonce CSP, dev-safe) +
-  `next.config.js`
-- Dependabot weekly + GitHub Actions CI (`npm run build` + `npm audit
-  --audit-level=high`)
+- Response headers via `proxy.ts` (Next 16's name for middleware;
+  nonce CSP, dev-safe) + `next.config.js`
+- ESLint 9 flat config in `eslint.config.mjs` (`npm run lint` runs
+  `eslint .`; `next lint` no longer exists in Next 16)
+- Dependabot weekly + GitHub Actions CI (`npm run lint`, `npm run
+  build`, `npm audit --audit-level=high`)
 
 Node 22 for CI; 20 or newer should work locally.
 
@@ -92,7 +97,8 @@ lib/
   import.ts               # Hardened backup JSON parser
   sample.ts               # Three demo invoices for the dashboard CTA
 
-middleware.ts             # Per-request nonce CSP
+proxy.ts                  # Per-request nonce CSP (was middleware.ts)
+eslint.config.mjs         # ESLint 9 flat config
 next.config.js            # Non-CSP security headers
 .github/
   workflows/ci.yml        # Lint, build, npm audit
@@ -159,13 +165,32 @@ state for the second invoice. Both `[id]` pages pass
 
 ### 6. CSP: strict in prod, relaxed in dev
 
-`middleware.ts` emits a per-request nonce CSP. In dev it has to allow
+`proxy.ts` emits a per-request nonce CSP. In dev it has to allow
 `'unsafe-eval'` and `ws:`/`wss:` because Next.js's HMR runtime uses
 `eval()` and WebSockets — without these, every page in `npm run dev`
 hangs on its first-render loading state (this was a real bug caught
 during the last session). Production strips those back out. If you
 see pages freezing in dev, check the browser console for a CSP
 violation first.
+
+**Every route must render per request.** `app/layout.tsx` sets
+`export const dynamic = "force-dynamic"`. Next.js can only stamp the
+nonce onto its `<script>` tags at request time; prerendered (static)
+pages ship scripts with no nonce, and the strict production CSP then
+blocks all of them, so the app never hydrates. Until Nov 2026 every
+route was static and production was broken this way (dev hid it,
+because the dev CSP allows `'unsafe-inline'`). Don't remove that
+export. Always check a change with `npm run build && npm start`, not
+just `npm run dev`.
+
+### 6a. Lint: one rule deliberately off
+
+`eslint.config.mjs` turns off `react-hooks/set-state-in-effect`.
+Every page hydrates from localStorage with
+`useEffect(() => setX(loadX()), [])`, which is the right pattern for
+browser-only storage (reading it during render would cause a
+hydration mismatch). A `useSyncExternalStore` store is the refactor
+if you ever want the rule back on.
 
 ### 7. PDF exporter is text-first, logos are PNG-only
 
@@ -202,8 +227,9 @@ Full audit in `SECURITY.md`. Key invariants to preserve:
 
 ```bash
 npm install
-npm run dev     # http://localhost:3000, HMR-safe CSP
+npm run dev     # http://localhost:3100, HMR-safe CSP
 npm run build   # Must pass before pushing (CI runs it too)
+npm start       # Serve the build: the only way to see the strict CSP
 npm run lint
 ```
 
@@ -222,15 +248,11 @@ populate. `lib/sample.ts` holds the fixtures.
 
 ## Push + GitHub
 
-The repo is `patricku-cpu/invoice`. Pushing from a new Claude Code
-session requires the Claude GitHub App to have access to that repo —
-if `add_repo` refuses, point the user to
-https://github.com/settings/installations, "Configure" on Claude,
-add `patricku-cpu/invoice` under Repository access.
+The repo is `Annex-Logistics/invoice-` (public). Work on a branch and
+open a PR against `main`; CI runs on both.
 
 PR and commit attribution: match whatever system reminder the
-session carries. Last session used `Claude Opus 4.7 <noreply@anthropic.com>`
-plus a `Claude-Session:` trailer.
+session carries.
 
 ---
 
@@ -257,7 +279,7 @@ plus a `Claude-Session:` trailer.
 - Full security headers in prod, dev-safe CSP
 - Dependabot + CI
 - SECURITY.md audit report
-- 9 commits on `main`
+- Next 16 / React 19 / jsPDF 4 upgrade, ESLint 9 config, production CSP fix (Nov 2026)
 
 ## Known rough edges / good next steps
 
@@ -300,9 +322,9 @@ session can take on:
 ## How to run local dev in this fresh environment
 
 ```bash
-cd /home/user
+cd invoice-          # repo root
 npm install          # once per fresh session container
-npm run dev          # pin localhost:3000
+npm run dev          # pin localhost:3100
 ```
 
 To see a populated UI, open `/` and click **Load sample data** — this

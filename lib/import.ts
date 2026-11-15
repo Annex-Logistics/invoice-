@@ -26,7 +26,6 @@ const MAX_INVOICES = 5000;
 function clean(s: unknown, max = MAX_STR): string {
   if (typeof s !== "string") return "";
   // Strip unprintable control chars (except tab/newline) and clip length.
-  // eslint-disable-next-line no-control-regex
   return s.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, "").slice(0, max);
 }
 
