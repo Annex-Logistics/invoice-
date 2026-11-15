@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { BarChart3, FileText, TrendingUp, Wallet } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import type { Invoice } from "@/lib/types";
-import { loadInvoices, todayISO } from "@/lib/storage";
+import type { Client, Invoice } from "@/lib/types";
+import { loadClients, loadInvoices, todayISO } from "@/lib/storage";
+import { matchClient } from "@/lib/clients";
 import { calcTotals, sumPayments } from "@/lib/totals";
 import { formatMoney, DEFAULT_CURRENCY } from "@/lib/currencies";
 
@@ -19,9 +20,11 @@ type MonthlyBucket = {
 
 export default function ReportsPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
 
   useEffect(() => {
     setInvoices(loadInvoices());
+    setClients(loadClients());
   }, []);
 
   const displayCurrency = invoices[0]?.currency ?? DEFAULT_CURRENCY;
@@ -78,22 +81,27 @@ export default function ReportsPage() {
       if (inv.status === "paid") continue;
       const t = calcTotals(inv);
       if (t.balanceDue <= 0) continue;
-      const key = (inv.billTo.email || inv.billTo.name || "—").toLowerCase().trim();
+      // Group by saved client when we can attribute one (survives
+      // renames); otherwise by the bill-to email/name on the invoice.
+      const client = matchClient(inv, clients);
+      const key = client
+        ? `client:${client.id}`
+        : (inv.billTo.email || inv.billTo.name || "—").toLowerCase().trim();
       const existing = map.get(key);
       if (existing) {
         existing.outstanding += t.balanceDue;
         existing.invoiceCount++;
       } else {
         map.set(key, {
-          name: inv.billTo.name || inv.billTo.email || "Unknown",
-          email: inv.billTo.email,
+          name: client?.name || inv.billTo.name || inv.billTo.email || "Unknown",
+          email: client?.email || inv.billTo.email,
           outstanding: t.balanceDue,
           invoiceCount: 1,
         });
       }
     }
     return Array.from(map.values()).sort((a, b) => b.outstanding - a.outstanding);
-  }, [invoices]);
+  }, [invoices, clients]);
 
   const taxByLabel = useMemo(() => {
     const map = new Map<string, number>();

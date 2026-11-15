@@ -145,3 +145,36 @@ test("backup export + import restores payments, estimates and clients", async ({
   expect(pick(after, "estimates")[0].status).toBe("accepted");
   expect(pick(after, "clients")).toEqual(pick(before, "clients"));
 });
+
+test("picking a saved client links the invoice, and the link survives a rename", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "annexinvoice.clients.v1",
+      JSON.stringify([{ id: "c1", name: "Ada Obi", email: "ada@example.com", phone: "", address: "" }])
+    )
+  );
+  await page.goto("/invoices/new");
+  await page.getByRole("button", { name: "Pick client" }).click();
+  await page.getByRole("button", { name: /Ada Obi/ }).click();
+  await expect(page.getByPlaceholder("Client / company name")).toHaveValue("Ada Obi");
+  await expect(page.getByText("Saved client")).toBeVisible();
+  await page.getByLabel("Rate").first().fill("120");
+  await waitForSave(page);
+
+  const stored = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("annexinvoice.invoices.v1") ?? "[]")
+  );
+  expect(stored[0].clientId).toBe("c1");
+
+  // Rename the client: the card should still count the invoice.
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "annexinvoice.clients.v1",
+      JSON.stringify([{ id: "c1", name: "Ada Obi-Nwosu", email: "ada@new.example", phone: "", address: "" }])
+    )
+  );
+  await page.goto("/clients");
+  const card = page.locator(".card").filter({ hasText: "Ada Obi-Nwosu" });
+  await expect(card).toContainText("Open latest invoice");
+});

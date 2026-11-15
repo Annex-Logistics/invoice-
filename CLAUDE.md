@@ -305,10 +305,11 @@ session can take on:
 
 1. ~~**No real test suite.**~~ Done (Nov 2026): `tests/unit` + `tests/e2e`
    with `@playwright/test`, run in CI against the production build.
-2. **Clients attribution is heuristic.** Reports and client cards
-   match an invoice's bill-to to a saved client by email, then name,
-   case-insensitive. Add a nullable `clientId` on `Invoice` and have
-   the Pick-client flow set it, so attribution survives renames.
+2. ~~**Clients attribution is heuristic.**~~ Done (Nov 2026):
+   `Invoice.clientId` is set by Pick client / Save as client (a "Saved
+   client" chip can unlink it). `matchClient()` in `lib/clients.ts`
+   uses the id first, then falls back to email/name for legacy records.
+   Use `matchClient()` anywhere you attribute documents to clients.
 3. **Reports don't filter by date range.** Monthly chart shows last
    12 months hard-coded. Add a range picker.
 4. **Recurring invoices** — not implemented. Would need a schedule

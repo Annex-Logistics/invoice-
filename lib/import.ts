@@ -227,6 +227,7 @@ function parseInvoice(raw: unknown, kind: DocumentKind): Invoice | null {
     terms: clean(o.terms, MAX_LONG_STR),
     amountPaid: Math.max(0, num(o.amountPaid)),
     ...(payments.length ? { payments } : {}),
+    ...(clean(o.clientId, 64) ? { clientId: clean(o.clientId, 64) } : {}),
   };
 }
 

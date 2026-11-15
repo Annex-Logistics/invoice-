@@ -123,6 +123,12 @@ export type Invoice = {
   // back to amountPaid when payments is absent.
   amountPaid: number;
   payments?: Payment[];
+
+  // The saved client this document was billed to, when picked from or
+  // saved to the client list. Attribution (client cards, reports) uses
+  // it first so it survives renames; legacy records without it fall
+  // back to matching bill-to email, then name.
+  clientId?: string;
 };
 
 export type Totals = {

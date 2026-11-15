@@ -219,6 +219,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   function pickClient(client: Client) {
     setInvoice((prev) => ({
       ...prev,
+      clientId: client.id,
       billTo: {
         name: client.name,
         email: client.email,
@@ -235,13 +236,15 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
       alert("Fill at least a name or email before saving as a client.");
       return;
     }
+    const id = createId();
     upsertClient({
-      id: createId(),
+      id,
       name: b.name.trim(),
       email: b.email.trim(),
       phone: b.phone.trim(),
       address: b.address.trim(),
     });
+    setInvoice((prev) => ({ ...prev, clientId: id }));
     alert("Client saved to your client list.");
   }
 
@@ -384,7 +387,23 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
             <div className="grid gap-5 md:grid-cols-2">
               <div>
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-ink-900">Bill To</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-ink-900">Bill To</h3>
+                    {invoice.clientId && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand-700">
+                        Saved client
+                        <button
+                          type="button"
+                          onClick={() => setInvoice((prev) => ({ ...prev, clientId: undefined }))}
+                          className="rounded-full hover:text-brand-900"
+                          aria-label="Unlink saved client"
+                          title="Stop attributing this document to the saved client"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 text-xs">
                     <button
                       type="button"
