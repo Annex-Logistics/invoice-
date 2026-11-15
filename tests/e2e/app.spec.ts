@@ -9,6 +9,7 @@ const ROUTES: Array<[string, string]> = [
   ["/clients", "Clients"],
   ["/reports", "Reports"],
   ["/settings", "Settings"],
+  ["/recurring", "Recurring"],
   ["/invoices/new", "New invoice"],
   ["/estimates/new", "New estimate"],
 ];
@@ -216,4 +217,60 @@ test("reports filter by period and never mix currencies", async ({ page }) => {
   // The dashboard notes that other currencies exist.
   await page.goto("/");
   await expect(page.getByText(/see Reports for other currencies/)).toBeVisible();
+});
+
+test("a repeating invoice catches up missed dates when the app opens", async ({ page }) => {
+  await loadSampleData(page);
+  await page.getByText("INV-0001").click();
+  await page.getByRole("button", { name: "Repeat", exact: true }).click();
+
+  // Monthly from the 1st of the month two months ago: three runs are
+  // due today (that date, a month later, and the 1st of this month).
+  const start = await page.evaluate(() => {
+    const d = new Date();
+    const s = new Date(d.getFullYear(), d.getMonth() - 2, 1);
+    return `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, "0")}-01`;
+  });
+  await page.getByLabel("Next invoice on").fill(start);
+  await page.getByRole("button", { name: "Start repeating" }).click();
+  await expect(page.getByRole("button", { name: "Repeats monthly" })).toBeVisible();
+
+  await page.goto("/invoices");
+  await expect(page.getByRole("status")).toContainText("Created 3 recurring invoices");
+  const generated = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("annexinvoice.invoices.v1")!).filter(
+      (i: { recurringId?: string }) => i.recurringId
+    )
+  );
+  expect(generated).toHaveLength(3);
+  expect(generated.every((i: { status: string }) => i.status === "draft")).toBe(true);
+
+  // Reloading must not generate them again.
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Invoices" })).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(0);
+
+  await page.goto("/recurring");
+  const row = page.getByRole("row").filter({ hasText: "INV-0001" });
+  await expect(row).toContainText("Monthly");
+  await expect(row).toContainText("Active");
+  await row.getByRole("button", { name: "Pause" }).click();
+  await expect(row).toContainText("Paused");
+});
+
+test("duplicating a paid invoice gives an unpaid draft", async ({ page }) => {
+  await loadSampleData(page);
+  await page.getByText("INV-0002").click(); // the paid sample
+  await page.getByRole("button", { name: "Record payment" }).click();
+  await waitForSave(page);
+  await page.getByRole("button", { name: /Duplicate/ }).click();
+  await expect(page).toHaveURL(/\/invoices\/[\w-]+$/);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("INV-0004");
+  const copy = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("annexinvoice.invoices.v1")!).find(
+      (i: { number: string }) => i.number === "INV-0004"
+    )
+  );
+  expect(copy.status).toBe("draft");
+  expect(copy.payments).toEqual([]);
 });

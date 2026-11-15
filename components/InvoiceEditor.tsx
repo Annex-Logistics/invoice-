@@ -19,6 +19,7 @@ import {
   FileCheck,
   X,
   CreditCard,
+  Repeat,
 } from "lucide-react";
 import type {
   Invoice,
@@ -29,6 +30,7 @@ import type {
   Payment,
   PaymentMethod,
   Client,
+  RecurringSchedule,
 } from "@/lib/types";
 import { CURRENCIES, findCurrency, formatMoney } from "@/lib/currencies";
 import {
@@ -39,6 +41,7 @@ import {
   loadItems,
   removeDocument,
   saveBusiness,
+  scheduleForInvoice,
   todayISO,
   upsertClient,
   upsertDocument,
@@ -52,6 +55,8 @@ import { LineItemsTable } from "./LineItemsTable";
 import { LogoUpload } from "./LogoUpload";
 import { InvoicePreview } from "./InvoicePreview";
 import { StatusBadge } from "./StatusBadge";
+import { RecurringModal } from "./RecurringModal";
+import { frequencyLabel } from "@/lib/recurring";
 
 type Props = {
   initialInvoice: Invoice;
@@ -71,6 +76,8 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   const [saved, setSaved] = useState<"idle" | "saving" | "saved">("idle");
   const [showLibrary, setShowLibrary] = useState(false);
   const [showClients, setShowClients] = useState(false);
+  const [showRecurring, setShowRecurring] = useState(false);
+  const [schedule, setSchedule] = useState<RecurringSchedule | undefined>(undefined);
 
   const isEstimate = invoice.kind === "estimate";
   const listPath = isEstimate ? "/estimates" : "/invoices";
@@ -78,6 +85,16 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   const statusOptions = isEstimate ? ESTIMATE_STATUS : INVOICE_STATUS;
 
   const totals = useMemo(() => calcTotals(invoice), [invoice]);
+
+  useEffect(() => {
+    if (initialInvoice.kind !== "estimate") setSchedule(scheduleForInvoice(initialInvoice.id));
+  }, [initialInvoice.id, initialInvoice.kind]);
+
+  function openRecurring() {
+    // The schedule copies the stored invoice, so make sure it's saved.
+    upsertDocument(invoice);
+    setShowRecurring(true);
+  }
 
   // Auto-save (debounced) — skip the first render so just opening an
   // invoice doesn't bump its updatedAt or flash "Saving...".
@@ -277,6 +294,15 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                 {isNew ? `New ${docLabel.toLowerCase()}` : `Edit ${invoice.number}`}
               </h1>
               <StatusBadge status={invoice.status} />
+              {invoice.recurringId && (
+                <Link
+                  href="/recurring"
+                  className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand-700"
+                  title="Created by a recurring schedule"
+                >
+                  <Repeat className="h-3 w-3" /> Recurring
+                </Link>
+              )}
             </div>
             <div className="text-xs text-ink-500">
               {saved === "saving" && "Saving..."}
@@ -302,6 +328,12 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
           {isEstimate && !isNew && (
             <button className="btn-primary" onClick={handleConvertToInvoice}>
               <FileCheck className="h-4 w-4" /> Convert to invoice
+            </button>
+          )}
+          {!isEstimate && (
+            <button className="btn-secondary" onClick={openRecurring}>
+              <Repeat className="h-4 w-4" />
+              {schedule ? `Repeats ${frequencyLabel(schedule.frequency).toLowerCase()}` : "Repeat"}
             </button>
           )}
           {!isEstimate && (
@@ -771,6 +803,15 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
           onClose={() => setShowLibrary(false)}
           onPick={insertLibraryItem}
           currencySymbol={invoice.currency.symbol}
+        />
+      )}
+
+      {showRecurring && (
+        <RecurringModal
+          source={invoice}
+          existing={schedule}
+          onClose={() => setShowRecurring(false)}
+          onChange={setSchedule}
         />
       )}
 

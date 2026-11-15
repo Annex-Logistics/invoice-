@@ -16,6 +16,7 @@ import {
   loadInvoices,
   loadItems,
   loadPrefs,
+  loadSchedules,
   removeItem,
   saveBusiness,
   saveClients,
@@ -23,6 +24,7 @@ import {
   saveInvoices,
   saveItems,
   savePrefs,
+  saveSchedules,
   todayISO,
   upsertItem,
 } from "@/lib/storage";
@@ -81,6 +83,7 @@ export default function SettingsPage() {
       invoices: loadInvoices(),
       estimates: loadEstimates(),
       clients: loadClients(),
+      recurring: loadSchedules(),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -126,6 +129,9 @@ export default function SettingsPage() {
         if (result.clients) {
           saveClients(result.clients);
         }
+        if (result.recurring) {
+          saveSchedules(result.recurring);
+        }
         const msg =
           "Imported successfully." +
           (result.warnings.length ? "\n\n" + result.warnings.join("\n") : "");
@@ -139,10 +145,11 @@ export default function SettingsPage() {
   }
 
   function resetAll() {
-    if (!confirm("Erase all invoices, estimates, clients, items, business info, and preferences? This cannot be undone.")) return;
+    if (!confirm("Erase all invoices, estimates, clients, recurring schedules, items, business info, and preferences? This cannot be undone.")) return;
     saveInvoices([]);
     saveEstimates([]);
     saveClients([]);
+    saveSchedules([]);
     saveItems([]);
     savePrefs(defaultPrefs());
     saveBusiness(emptyBusiness());

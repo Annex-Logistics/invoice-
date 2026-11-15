@@ -1,6 +1,14 @@
 "use client";
 
-import type { Business, Client, Invoice, InvoicePrefs, SavedItem } from "./types";
+import type {
+  Business,
+  Client,
+  Invoice,
+  InvoicePrefs,
+  RecurringSchedule,
+  SavedItem,
+} from "./types";
+import { buildRunInvoice, dueRuns, nextRunDate } from "./recurring";
 import { DEFAULT_CURRENCY, findCurrency } from "./currencies";
 
 const INVOICES_KEY  = "annexinvoice.invoices.v1";
@@ -11,6 +19,7 @@ const EST_COUNTER_KEY = "annexinvoice.estimateCounter.v1";
 const PREFS_KEY     = "annexinvoice.prefs.v1";
 const ITEMS_KEY     = "annexinvoice.items.v1";
 const CLIENTS_KEY   = "annexinvoice.clients.v1";
+const RECURRING_KEY = "annexinvoice.recurring.v1";
 
 function isBrowser() {
   return typeof window !== "undefined";
@@ -119,11 +128,13 @@ export function nextEstimateNumber(): string {
   const prefix  = prefs.estimateNumberPrefix  ?? "EST-";
   const padding = prefs.estimateNumberPadding ?? 4;
   const seed    = prefs.estimateNextNumber    ?? 1;
-  const current = Math.max(stored, seed - 1);
-  const next = current + 1;
+  const format = (n: number) => `${prefix}${String(n).padStart(padding, "0")}`;
+  const used = new Set(loadEstimates().map((e) => e.number));
+  let next = Math.max(stored, seed - 1) + 1;
+  while (used.has(format(next))) next++;
   safeSet(EST_COUNTER_KEY, String(next));
   savePrefs({ ...prefs, estimateNextNumber: next + 1 });
-  return `${prefix}${String(next).padStart(padding, "0")}`;
+  return format(next);
 }
 
 /**
@@ -237,8 +248,12 @@ export function duplicateInvoice(id: string): Invoice | null {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     issueDate: todayISO(),
-    dueDate: addDaysISO(todayISO(), 14),
+    dueDate: addDaysISO(todayISO(), loadPrefs().defaultDueDays),
     amountPaid: 0,
+    // A copy is a fresh bill: never carry the source's payments over
+    // (they used to be copied, so duplicates showed as already paid).
+    payments: [],
+    recurringId: undefined,
     items: source.items.map((item) => ({ ...item, id: createId() })),
   };
   upsertInvoice(clone);
@@ -265,11 +280,15 @@ export function nextInvoiceNumber(): string {
   const prefs = loadPrefs();
   const raw = window.localStorage.getItem(COUNTER_KEY);
   const stored = raw ? parseInt(raw, 10) : 0;
-  const current = Math.max(stored, prefs.nextNumber - 1);
-  const next = current + 1;
+  const format = (n: number) => `${prefs.numberPrefix}${String(n).padStart(prefs.numberPadding, "0")}`;
+  const used = new Set(loadInvoices().map((i) => i.number));
+  let next = Math.max(stored, prefs.nextNumber - 1) + 1;
+  // Sample data, imported backups and hand-edited numbers don't move the
+  // counter, so skip any number that's already taken.
+  while (used.has(format(next))) next++;
   safeSet(COUNTER_KEY, String(next));
   savePrefs({ ...prefs, nextNumber: next + 1 });
-  return `${prefs.numberPrefix}${String(next).padStart(prefs.numberPadding, "0")}`;
+  return format(next);
 }
 
 export function defaultPrefs(): InvoicePrefs {
@@ -441,4 +460,91 @@ export function newEstimate(business?: Business): Invoice {
     amountPaid: 0,
     payments: [],
   };
+}
+
+// ── Recurring schedules ────────────────────────────────────────────────
+
+export function loadSchedules(): RecurringSchedule[] {
+  if (!isBrowser()) return [];
+  try {
+    const raw = window.localStorage.getItem(RECURRING_KEY);
+    return raw ? (JSON.parse(raw) as RecurringSchedule[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveSchedules(list: RecurringSchedule[]) {
+  safeSet(RECURRING_KEY, JSON.stringify(list));
+}
+
+export function upsertSchedule(schedule: RecurringSchedule) {
+  const list = loadSchedules();
+  const idx = list.findIndex((s) => s.id === schedule.id);
+  if (idx === -1) list.unshift(schedule);
+  else list[idx] = schedule;
+  saveSchedules(list);
+}
+
+export function removeSchedule(id: string) {
+  saveSchedules(loadSchedules().filter((s) => s.id !== id));
+}
+
+export function scheduleForInvoice(invoiceId: string): RecurringSchedule | undefined {
+  return loadSchedules().find((s) => s.sourceInvoiceId === invoiceId);
+}
+
+/**
+ * Generate every recurring invoice that has come due. Called whenever
+ * the app shell mounts (there is no backend scheduler). Idempotent per
+ * (schedule, run date): if another tab already generated a run, it is
+ * skipped rather than duplicated. Returns how many invoices were made.
+ */
+export function runDueSchedules(today = todayISO()): number {
+  if (!isBrowser()) return 0;
+  const schedules = loadSchedules();
+  if (schedules.length === 0) return 0;
+  let invoices = loadInvoices();
+  let created = 0;
+  let changed = false;
+
+  for (const s of schedules) {
+    if (!s.active) continue;
+    const runs = dueRuns(s, today);
+    if (runs.length === 0) {
+      if (nextRunDate(s) === null) {
+        s.active = false; // past its end date
+        changed = true;
+      }
+      continue;
+    }
+    const source = invoices.find((i) => i.id === s.sourceInvoiceId);
+    if (!source) {
+      s.active = false;
+      s.problem = "source-missing";
+      changed = true;
+      continue;
+    }
+    for (const runDate of runs) {
+      const exists = invoices.some((i) => i.recurringId === s.id && i.issueDate === runDate);
+      if (!exists) {
+        const inv = buildRunInvoice(source, s, runDate, {
+          id: createId(),
+          number: nextInvoiceNumber(),
+          now: new Date().toISOString(),
+          newLineId: createId,
+        });
+        invoices = [inv, ...invoices];
+        created++;
+      }
+      s.runCount++;
+      s.lastRunDate = runDate;
+      changed = true;
+    }
+    if (nextRunDate(s) === null) s.active = false;
+  }
+
+  if (created > 0) saveInvoices(invoices);
+  if (changed) saveSchedules(schedules);
+  return created;
 }

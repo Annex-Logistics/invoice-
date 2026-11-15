@@ -9,6 +9,7 @@ import {
   FileText,
   LayoutDashboard,
   Plus,
+  Repeat,
   Settings,
   Users,
   HelpCircle,
@@ -19,6 +20,7 @@ const nav = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard },
   { href: "/invoices",  label: "Invoices",  icon: FileText },
   { href: "/estimates", label: "Estimates", icon: FileCheck },
+  { href: "/recurring", label: "Recurring", icon: Repeat },
   { href: "/clients",   label: "Clients",   icon: Users },
   { href: "/reports",   label: "Reports",   icon: BarChart3 },
   { href: "/settings",  label: "Settings",  icon: Settings },
@@ -68,7 +70,7 @@ export function Sidebar() {
 
       <div className="border-t border-ink-100 p-4">
         <a
-          href="https://github.com/Annex-Logistics/invoice"
+          href="https://github.com/Annex-Logistics/invoice-"
           target="_blank"
           rel="noreferrer"
           className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-ink-500 hover:bg-ink-50 hover:text-ink-800"

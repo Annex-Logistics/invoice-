@@ -317,11 +317,16 @@ session can take on:
    a time (most-used by default). The dashboard's Collected tile used
    to read legacy `amountPaid` and ignore recorded payments; it now uses
    `summarize()`.
-4. **Recurring invoices** — not implemented. Would need a schedule
-   definition on `Invoice` + a `/recurring` section that generates
-   new invoices on each fire. In a local-only app this would have to
-   be lazy (generate on next page load when due), since there's no
-   backend scheduler.
+4. ~~**Recurring invoices**~~ Done (Nov 2026). Open an invoice → Repeat.
+   A `RecurringSchedule` (storage key `annexinvoice.recurring.v1`)
+   points at a source invoice and copies its *current* content on each
+   run as a draft with `recurringId` set. Runs are lazy:
+   `runDueSchedules()` is called from `AppShell` on every page mount,
+   catches up missed dates (max 24 per load), and is idempotent per
+   (schedule, date) so two tabs can't double-generate. Occurrence n is
+   computed from the anchor date, so month-ends don't drift. Pure logic
+   in `lib/recurring.ts`; UI in `components/RecurringModal.tsx` and
+   `/recurring`. Resuming a paused schedule skips the missed dates.
 5. **Multiple businesses.** Everything assumes one. Would need a
    `businesses` list in storage + a current-business picker in the
    top bar.

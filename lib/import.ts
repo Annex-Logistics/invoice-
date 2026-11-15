@@ -6,6 +6,8 @@ import type {
   InvoicePrefs,
   Payment,
   PaymentMethod,
+  RecurringFrequency,
+  RecurringSchedule,
   SavedItem,
 } from "./types";
 import { defaultPrefs, emptyBusiness } from "./storage";
@@ -25,6 +27,7 @@ export type BackupParseResult = {
   invoices?: Invoice[];
   estimates?: Invoice[];
   clients?: Client[];
+  recurring?: RecurringSchedule[];
   warnings: string[];
 };
 
@@ -228,6 +231,33 @@ function parseInvoice(raw: unknown, kind: DocumentKind): Invoice | null {
     amountPaid: Math.max(0, num(o.amountPaid)),
     ...(payments.length ? { payments } : {}),
     ...(clean(o.clientId, 64) ? { clientId: clean(o.clientId, 64) } : {}),
+    ...(clean(o.recurringId, 64) ? { recurringId: clean(o.recurringId, 64) } : {}),
+  };
+}
+
+const FREQS: RecurringFrequency[] = ["weekly", "monthly", "quarterly", "yearly"];
+
+function parseSchedule(raw: unknown): RecurringSchedule | null {
+  const o = strip(raw);
+  const id = clean(o.id, 64);
+  const sourceInvoiceId = clean(o.sourceInvoiceId, 64);
+  const startDate = typeof o.startDate === "string" && DATE_LIKE.test(o.startDate) ? o.startDate : "";
+  if (!id || !sourceInvoiceId || !startDate) return null;
+  if (!FREQS.includes(o.frequency as RecurringFrequency)) return null;
+  const endDate = typeof o.endDate === "string" && DATE_LIKE.test(o.endDate) ? o.endDate : "";
+  const lastRunDate =
+    typeof o.lastRunDate === "string" && DATE_LIKE.test(o.lastRunDate) ? o.lastRunDate : "";
+  return {
+    id,
+    sourceInvoiceId,
+    frequency: o.frequency as RecurringFrequency,
+    startDate,
+    ...(endDate ? { endDate } : {}),
+    runCount: Math.max(0, Math.floor(num(o.runCount))),
+    active: o.active === true,
+    createdAt: clean(o.createdAt, 64) || new Date().toISOString(),
+    ...(lastRunDate ? { lastRunDate } : {}),
+    ...(o.problem === "source-missing" ? { problem: "source-missing" as const } : {}),
   };
 }
 
@@ -280,7 +310,16 @@ export function parseBackup(text: string): BackupParseResult {
     result.clients = parsed;
   }
 
+  if (Array.isArray(d.recurring)) {
+    const parsed = d.recurring.slice(0, MAX_CLIENTS).map(parseSchedule).filter(Boolean) as RecurringSchedule[];
+    if (parsed.length !== d.recurring.length) {
+      warnings.push(`Skipped ${d.recurring.length - parsed.length} invalid recurring schedule(s).`);
+    }
+    result.recurring = parsed;
+  }
+
   if (
+    !result.recurring &&
     !result.business &&
     !result.prefs &&
     !result.items &&
