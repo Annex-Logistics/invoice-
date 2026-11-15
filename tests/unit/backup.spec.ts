@@ -131,3 +131,40 @@ test.describe("multi-business backups", () => {
     expect(result.currentBusinessId).toBeUndefined();
   });
 });
+
+test.describe("receipts and delivery notes in backups", () => {
+  test("round-trip with their own statuses and the source invoice number", () => {
+    const result = parseBackup(
+      JSON.stringify({
+        receipts: [
+          makeInvoice({ id: "r1", kind: "receipt", number: "REC-0001", status: "issued", sourceNumber: "INV-0007" }),
+        ],
+        deliveryNotes: [
+          makeInvoice({ id: "d1", kind: "delivery-note", number: "DN-0001", status: "delivered" }),
+        ],
+      })
+    );
+    expect(result.receipts?.[0]).toMatchObject({ kind: "receipt", status: "issued", sourceNumber: "INV-0007" });
+    expect(result.deliveryNotes?.[0]).toMatchObject({ kind: "delivery-note", status: "delivered" });
+  });
+
+  test("a status from another document type falls back to draft", () => {
+    const result = parseBackup(
+      JSON.stringify({ receipts: [makeInvoice({ kind: "receipt", status: "overdue" })] })
+    );
+    expect(result.receipts?.[0].status).toBe("draft");
+  });
+});
+
+test("emails name the document type and leave prices off delivery notes", () => {
+  const body = (inv: Parameters<typeof buildInvoiceMailto>[0]) =>
+    decodeURIComponent(buildInvoiceMailto(inv));
+  const est = body(makeInvoice({ kind: "estimate", number: "EST-0001" }));
+  expect(est).toContain("subject=Estimate EST-0001");
+  expect(est).toContain("Valid until: 2026-01-15");
+  const dn = body(makeInvoice({ kind: "delivery-note", number: "DN-0001", sourceNumber: "INV-0001" }));
+  expect(dn).toContain("subject=Delivery note DN-0001");
+  expect(dn).toContain("Invoice: INV-0001");
+  expect(dn).not.toContain("$");
+  expect(dn).not.toContain("Total:");
+});

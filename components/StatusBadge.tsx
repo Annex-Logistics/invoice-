@@ -8,6 +8,8 @@ const styles: Record<DocumentStatus, string> = {
   overdue:  "bg-rose-50 text-rose-700",
   accepted: "bg-emerald-50 text-emerald-700",
   declined: "bg-rose-50 text-rose-700",
+  issued:    "bg-emerald-50 text-emerald-700",
+  delivered: "bg-emerald-50 text-emerald-700",
 };
 
 const labels: Record<DocumentStatus, string> = {
@@ -17,6 +19,8 @@ const labels: Record<DocumentStatus, string> = {
   overdue:  "Overdue",
   accepted: "Accepted",
   declined: "Declined",
+  issued:    "Issued",
+  delivered: "Delivered",
 };
 
 export function StatusBadge({ status }: { status: DocumentStatus }) {

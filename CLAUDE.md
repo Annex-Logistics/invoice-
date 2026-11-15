@@ -365,9 +365,25 @@ session can take on:
    attributes instead). Inter is self-hosted from `public/fonts`
    (variable woff2, latin + latin-ext, OFL licence alongside), so the
    app makes no third-party requests at all; an e2e test asserts both.
-8. **Delivery note / receipt doc types.** The editor is already
-   generic over `kind` — adding another kind is mechanical following
-   the recipe in "Key architecture decisions" above.
+8. ~~**Delivery note / receipt doc types.**~~ Done (Nov 2026).
+   `lib/docTypes.ts` is now the single description of every document
+   kind (label, route, statuses, second-date label, whether it has
+   payments / prices / signature lines). The editor, preview, PDF,
+   email and backup parser read it instead of branching on `kind`.
+   **To add a kind:** add it to `DocumentKind` and `DOC_TYPES`, give it
+   a key in `EXTRA_KEYS` (`lib/storage.ts`), add three one-line route
+   files using `components/DocumentPages.tsx`, add nav entries, and add
+   it to the backup export/import/reset in Settings.
+   - Receipts (`REC-`): single date, statuses draft/issued, payments
+     shown. "Create receipt" on an invoice copies its payments.
+   - Delivery notes (`DN-`): no prices anywhere, statuses
+     draft/sent/delivered, signature lines. "Create delivery note" on
+     an invoice copies items and addresses.
+   - Both store `sourceNumber` (the invoice they came from) and number
+     per business via `annexinvoice.docCounters.v1`.
+   - Mobile: the bottom bar gained a **More** menu (Receipts, Delivery
+     notes, Recurring, Clients, Settings), and the editor's status /
+     quick-action rail now shows below the form on small screens.
 9. **PDF typography.** Currently Helvetica built-in. Could embed Inter
    via jsPDF's font loader to match the on-screen preview exactly.
 10. **Timezone of dueDate comparisons.** Already fixed, but worth a

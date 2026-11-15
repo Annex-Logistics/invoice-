@@ -1,6 +1,7 @@
 import type { Invoice } from "./types";
 import { calcTotals, sumPayments } from "./totals";
 import { formatMoney } from "./currencies";
+import { docType } from "./docTypes";
 
 // Strip anything the mailto scheme can't carry in an addr-spec,
 // including CRLF and separators that could inject extra headers
@@ -13,18 +14,23 @@ function sanitizeEmailAddress(raw: string): string {
 export function buildInvoiceMailto(invoice: Invoice): string {
   const totals = calcTotals(invoice);
   const to = sanitizeEmailAddress(invoice.billTo.email || "");
-  const subject = `Invoice ${invoice.number} from ${invoice.business.name || "Annex Logistics"}`;
+  const cfg = docType(invoice.kind);
+  const noun = cfg.label.toLowerCase();
+  const subject = `${cfg.label} ${invoice.number} from ${invoice.business.name || "Annex Logistics"}`;
 
   const lines: string[] = [];
   if (invoice.billTo.name) lines.push(`Hi ${invoice.billTo.name.split(/\s+/)[0]},`);
   else lines.push("Hello,");
   lines.push("");
-  lines.push(`Please find the details for invoice ${invoice.number} below.`);
+  lines.push(`Please find the details for ${noun} ${invoice.number} below.`);
   lines.push("");
-  lines.push(`Issue date: ${invoice.issueDate}`);
-  lines.push(`Due date:   ${invoice.dueDate}`);
-  lines.push(`Total:      ${formatMoney(totals.total, invoice.currency)}`);
-  const paid = sumPayments(invoice);
+  lines.push(`${cfg.dueLabel ? "Issue date" : "Date"}: ${invoice.issueDate}`);
+  if (cfg.dueLabel) {
+    lines.push(`${cfg.dueLabel === "Due" ? "Due date" : cfg.dueLabel}: ${invoice.dueDate}`);
+  }
+  if (invoice.sourceNumber) lines.push(`Invoice: ${invoice.sourceNumber}`);
+  if (cfg.prices) lines.push(`Total: ${formatMoney(totals.total, invoice.currency)}`);
+  const paid = cfg.payments ? sumPayments(invoice) : 0;
   if (paid > 0) {
     lines.push(`Amount paid: ${formatMoney(paid, invoice.currency)}`);
     lines.push(`Balance due: ${formatMoney(totals.balanceDue, invoice.currency)}`);
@@ -33,8 +39,11 @@ export function buildInvoiceMailto(invoice: Invoice): string {
   lines.push("Line items:");
   invoice.items.forEach((item) => {
     const amount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
+    const what = `  • ${item.description || "—"} — ${item.quantity}`;
     lines.push(
-      `  • ${item.description || "—"} — ${item.quantity} × ${formatMoney(item.rate, invoice.currency)} = ${formatMoney(amount, invoice.currency)}`
+      cfg.prices
+        ? `${what} × ${formatMoney(item.rate, invoice.currency)} = ${formatMoney(amount, invoice.currency)}`
+        : what
     );
   });
   if (invoice.notes) {

@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  DocumentKind,
   Business,
   Client,
   Invoice,
@@ -10,6 +11,7 @@ import type {
   SavedItem,
 } from "./types";
 import { buildRunInvoice, dueRuns, nextRunDate } from "./recurring";
+import { docType } from "./docTypes";
 import { DEFAULT_CURRENCY, findCurrency } from "./currencies";
 
 const INVOICES_KEY  = "annexinvoice.invoices.v1";
@@ -22,6 +24,7 @@ const ITEMS_KEY     = "annexinvoice.items.v1";
 const CLIENTS_KEY   = "annexinvoice.clients.v1";
 const RECURRING_KEY = "annexinvoice.recurring.v1";
 const BUSINESSES_KEY = "annexinvoice.businesses.v1";
+const DOC_COUNTERS_KEY = "annexinvoice.docCounters.v1";
 const CURRENT_BUSINESS_KEY = "annexinvoice.currentBusiness.v1";
 
 function isBrowser() {
@@ -108,16 +111,19 @@ export function duplicateEstimate(id: string): Invoice | null {
 // Kind-aware wrappers so the shared editor doesn't need to branch
 // on which storage key to write.
 export function upsertDocument(doc: Invoice) {
-  if (doc.kind === "estimate") upsertEstimate(doc);
+  if (isExtraKind(doc.kind)) upsertExtra(doc);
+  else if (doc.kind === "estimate") upsertEstimate(doc);
   else upsertInvoice(doc);
 }
 
 export function removeDocument(doc: Invoice) {
-  if (doc.kind === "estimate") removeEstimate(doc.id);
+  if (isExtraKind(doc.kind)) saveDocs(doc.kind, loadDocs(doc.kind).filter((d) => d.id !== doc.id));
+  else if (doc.kind === "estimate") removeEstimate(doc.id);
   else removeInvoice(doc.id);
 }
 
 export function duplicateDocument(doc: Invoice): Invoice | null {
+  if (isExtraKind(doc.kind)) return duplicateExtra(doc);
   return doc.kind === "estimate"
     ? duplicateEstimate(doc.id)
     : duplicateInvoice(doc.id);
@@ -733,7 +739,10 @@ export function addBusiness(name: string): BusinessProfile {
 export function businessDocCount(id: string): number {
   const currentId = getCurrentBusinessId();
   const owns = (d: Invoice) => (d.businessId ?? currentId) === id;
-  return loadInvoices().filter(owns).length + loadEstimates().filter(owns).length;
+  return (["invoice", "estimate", "receipt", "delivery-note"] as const).reduce(
+    (n, kind) => n + loadDocs(kind).filter(owns).length,
+    0
+  );
 }
 
 // Only an inactive business with no documents can be removed, so no
@@ -759,4 +768,198 @@ export function clearBusinesses() {
   window.localStorage.removeItem(CURRENT_BUSINESS_KEY);
   window.localStorage.removeItem(COUNTER_KEY);
   window.localStorage.removeItem(EST_COUNTER_KEY);
+  window.localStorage.removeItem(DOC_COUNTERS_KEY);
+}
+
+// ── Receipts and delivery notes ────────────────────────────────────────
+// The newer document kinds share one generic store. Invoices and
+// estimates keep their original functions above.
+
+type ExtraKind = "receipt" | "delivery-note";
+
+const EXTRA_KEYS: Record<ExtraKind, string> = {
+  receipt: "annexinvoice.receipts.v1",
+  "delivery-note": "annexinvoice.deliveryNotes.v1",
+};
+
+function isExtraKind(kind: DocumentKind | undefined): kind is ExtraKind {
+  return kind === "receipt" || kind === "delivery-note";
+}
+
+/** Every stored document of a kind, across all businesses. */
+export function loadDocs(kind: DocumentKind): Invoice[] {
+  if (kind === "invoice") return loadInvoices();
+  if (kind === "estimate") return loadEstimates();
+  if (!isBrowser()) return [];
+  try {
+    const raw = window.localStorage.getItem(EXTRA_KEYS[kind]);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as Invoice[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveDocs(kind: DocumentKind, list: Invoice[]) {
+  if (kind === "invoice") saveInvoices(list);
+  else if (kind === "estimate") saveEstimates(list);
+  else safeSet(EXTRA_KEYS[kind], JSON.stringify(list));
+}
+
+export function loadCurrentDocs(kind: DocumentKind): Invoice[] {
+  const id = getCurrentBusinessId();
+  return loadDocs(kind).filter((d) => ownedByCurrent(d, id));
+}
+
+export function loadDoc(kind: DocumentKind, id: string): Invoice | null {
+  return loadDocs(kind).find((d) => d.id === id) ?? null;
+}
+
+function upsertExtra(doc: Invoice) {
+  const kind = doc.kind as ExtraKind;
+  const list = loadDocs(kind);
+  const idx = list.findIndex((d) => d.id === doc.id);
+  const next: Invoice = { ...doc, updatedAt: new Date().toISOString() };
+  if (idx === -1) list.unshift(next);
+  else list[idx] = next;
+  saveDocs(kind, list);
+}
+
+// Per-business sequence for the extra kinds: { [businessId]: { [kind]: n } }.
+function nextExtraNumber(kind: ExtraKind): string {
+  const prefix = docType(kind).defaultPrefix;
+  if (!isBrowser()) return `${prefix}0001`;
+  const businessId = getCurrentBusinessId();
+  let counters: Record<string, Record<string, number>> = {};
+  try {
+    counters = JSON.parse(window.localStorage.getItem(DOC_COUNTERS_KEY) ?? "{}") ?? {};
+  } catch {
+    counters = {};
+  }
+  const format = (n: number) => `${prefix}${String(n).padStart(4, "0")}`;
+  const used = new Set(
+    loadDocs(kind)
+      .filter((d) => (d.businessId ?? businessId) === businessId)
+      .map((d) => d.number)
+  );
+  let next = (counters[businessId]?.[kind] ?? 0) + 1;
+  while (used.has(format(next))) next++;
+  counters[businessId] = { ...(counters[businessId] ?? {}), [kind]: next };
+  safeSet(DOC_COUNTERS_KEY, JSON.stringify(counters));
+  return format(next);
+}
+
+function blankExtra(kind: ExtraKind): Invoice {
+  const base = newEstimateLike();
+  const today = todayISO();
+  return {
+    ...base,
+    kind,
+    number: nextExtraNumber(kind),
+    status: "draft",
+    issueDate: today,
+    // Receipts have no second date; a delivery note's is the delivery date.
+    dueDate: kind === "delivery-note" ? today : "",
+    terms: "",
+  };
+}
+
+// A blank document body without consuming an invoice/estimate number.
+function newEstimateLike(): Invoice {
+  const prefs = loadPrefs();
+  const now = new Date().toISOString();
+  return {
+    id: createId(),
+    kind: "invoice",
+    number: "",
+    status: "draft",
+    createdAt: now,
+    updatedAt: now,
+    issueDate: todayISO(),
+    dueDate: "",
+    poNumber: "",
+    businessId: isBrowser() ? getCurrentBusinessId() : undefined,
+    business: loadBusiness(),
+    billTo: { name: "", email: "", address: "", phone: "" },
+    shipTo: { name: "", email: "", address: "", phone: "" },
+    items: [{ id: createId(), description: "", quantity: 1, rate: 0 }],
+    currency: findCurrency(prefs.defaultCurrencyCode),
+    taxLabel: prefs.defaultTaxLabel,
+    taxMode: "percent",
+    taxValue: prefs.defaultTaxPercent,
+    discountLabel: "Discount",
+    discountMode: "percent",
+    discountValue: 0,
+    shipping: 0,
+    notes: "",
+    terms: "",
+    amountPaid: 0,
+    payments: [],
+  };
+}
+
+/** A new blank document of any kind (consumes that kind's next number). */
+export function newDocument(kind: DocumentKind): Invoice {
+  if (kind === "invoice") return newInvoice();
+  if (kind === "estimate") return newEstimate();
+  return blankExtra(kind);
+}
+
+/**
+ * Create a receipt or delivery note from an invoice. The invoice is left
+ * as it is. A receipt carries the invoice's payments (legacy amountPaid
+ * becomes one payment); a delivery note carries the items and addresses.
+ */
+export function createFromInvoice(invoiceId: string, kind: ExtraKind): Invoice | null {
+  const source = loadInvoice(invoiceId);
+  if (!source) return null;
+  const now = new Date().toISOString();
+  const today = todayISO();
+  let payments = (source.payments ?? []).map((p) => ({ ...p, id: createId() }));
+  if (kind === "receipt" && payments.length === 0 && source.amountPaid > 0) {
+    payments = [{ id: createId(), date: today, amount: source.amountPaid, method: "other", note: "" }];
+  }
+  const doc: Invoice = {
+    ...source,
+    id: createId(),
+    kind,
+    number: nextExtraNumber(kind),
+    status: kind === "receipt" ? "issued" : "draft",
+    createdAt: now,
+    updatedAt: now,
+    issueDate: today,
+    dueDate: kind === "delivery-note" ? today : "",
+    sourceNumber: source.number,
+    recurringId: undefined,
+    amountPaid: 0,
+    payments: kind === "receipt" ? payments : [],
+    notes: "",
+    terms: "",
+    items: source.items.map((item) => ({ ...item, id: createId() })),
+  };
+  upsertExtra(doc);
+  return doc;
+}
+
+function duplicateExtra(doc: Invoice): Invoice | null {
+  const kind = doc.kind as ExtraKind;
+  const source = loadDoc(kind, doc.id);
+  if (!source) return null;
+  const now = new Date().toISOString();
+  const today = todayISO();
+  const clone: Invoice = {
+    ...source,
+    id: createId(),
+    number: nextExtraNumber(kind),
+    status: "draft",
+    createdAt: now,
+    updatedAt: now,
+    issueDate: today,
+    dueDate: kind === "delivery-note" ? today : "",
+    payments: [],
+    amountPaid: 0,
+    items: source.items.map((item) => ({ ...item, id: createId() })),
+  };
+  upsertExtra(clone);
+  return clone;
 }

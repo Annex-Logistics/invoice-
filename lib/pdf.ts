@@ -3,6 +3,7 @@
 import type { Invoice } from "./types";
 import { calcTotals, sumPayments } from "./totals";
 import { formatMoney } from "./currencies";
+import { docType } from "./docTypes";
 
 /**
  * Generates a PDF from an invoice using jsPDF directly
@@ -73,12 +74,14 @@ export async function exportInvoicePdf(invoice: Invoice) {
   }
 
   // Right side — big INVOICE / ESTIMATE
-  const isEstimate = invoice.kind === "estimate";
-  const docLabel = isEstimate ? "Estimate" : "Invoice";
+  const cfg = docType(invoice.kind);
+  const docLabel = cfg.label;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(34);
+  // Longer titles ("DELIVERY NOTE") get a smaller size so they never
+  // run into the business name on the left.
+  const title = cfg.title;
+  doc.setFontSize(title.length > 8 ? 24 : 34);
   doc.setTextColor(...BRAND);
-  const title = isEstimate ? "ESTIMATE" : "INVOICE";
   const titleW = doc.getTextWidth(title);
   doc.text(title, pageW - margin - titleW, y);
 
@@ -88,9 +91,10 @@ export async function exportInvoicePdf(invoice: Invoice) {
   doc.setTextColor(...INK);
   const metaRows: Array<[string, string]> = [
     [`${docLabel} #`, invoice.number],
-    ["Issue Date", invoice.issueDate],
-    [isEstimate ? "Valid Until" : "Due Date", invoice.dueDate],
+    [cfg.dueLabel ? "Issue Date" : "Date", invoice.issueDate],
   ];
+  if (cfg.dueLabel) metaRows.push([cfg.dueLabel === "Due" ? "Due Date" : cfg.dueLabel, invoice.dueDate]);
+  if (invoice.sourceNumber) metaRows.push(["Invoice #", invoice.sourceNumber]);
   if (invoice.poNumber) metaRows.push(["PO Number", invoice.poNumber]);
   let my = y + 18;
   metaRows.forEach(([k, v]) => {
@@ -114,7 +118,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.setTextColor(...INK);
-  doc.text("Bill To", margin, y);
+  doc.text(cfg.partyLabel, margin, y);
 
   const hasShip = !!(invoice.shipTo && (invoice.shipTo.name || invoice.shipTo.address));
   if (hasShip) {
@@ -158,7 +162,8 @@ export async function exportInvoicePdf(invoice: Invoice) {
   // Items table
   const tableTop = y;
   const colDesc = margin;
-  const colQty  = pageW - margin - 300;
+  // Without prices the quantity sits at the right edge.
+  const colQty  = cfg.prices ? pageW - margin - 300 : pageW - margin - 8;
   const colRate = pageW - margin - 190;
 
   doc.setFillColor(243, 245, 250);
@@ -168,8 +173,10 @@ export async function exportInvoicePdf(invoice: Invoice) {
   doc.setTextColor(...INK);
   doc.text("Description", colDesc + 8, tableTop + 16);
   doc.text("Qty",  colQty,  tableTop + 16, { align: "right" });
-  doc.text("Rate", colRate, tableTop + 16, { align: "right" });
-  doc.text("Amount", pageW - margin - 8, tableTop + 16, { align: "right" });
+  if (cfg.prices) {
+    doc.text("Rate", colRate, tableTop + 16, { align: "right" });
+    doc.text("Amount", pageW - margin - 8, tableTop + 16, { align: "right" });
+  }
 
   y = tableTop + 28;
   doc.setFont("helvetica", "normal");
@@ -185,7 +192,10 @@ export async function exportInvoicePdf(invoice: Invoice) {
 
   for (const item of invoice.items) {
     const amount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
-    const descLines = doc.splitTextToSize(item.description || "—", colQty - colDesc - 16);
+    const descLines = doc.splitTextToSize(
+      item.description || "—",
+      colQty - colDesc - (cfg.prices ? 16 : 70)
+    );
     const rowH = Math.max(18, descLines.length * 13 + 6);
 
     ensureSpace(rowH + 6);
@@ -193,8 +203,10 @@ export async function exportInvoicePdf(invoice: Invoice) {
     doc.setTextColor(...INK);
     doc.text(descLines, colDesc + 8, y + 12);
     doc.text(String(item.quantity ?? 0), colQty, y + 12, { align: "right" });
-    doc.text(formatMoney(item.rate, invoice.currency),   colRate, y + 12, { align: "right" });
-    doc.text(formatMoney(amount, invoice.currency),       pageW - margin - 8, y + 12, { align: "right" });
+    if (cfg.prices) {
+      doc.text(formatMoney(item.rate, invoice.currency),   colRate, y + 12, { align: "right" });
+      doc.text(formatMoney(amount, invoice.currency),       pageW - margin - 8, y + 12, { align: "right" });
+    }
 
     y += rowH;
     doc.setDrawColor(...RULE);
@@ -223,7 +235,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
   }
   rows.push(["Total", formatMoney(totals.total, invoice.currency), true]);
   const paidTotal = sumPayments(invoice);
-  if (!isEstimate && paidTotal > 0) {
+  if (cfg.payments && paidTotal > 0) {
     rows.push(["Amount Paid", `- ${formatMoney(paidTotal, invoice.currency)}`]);
     rows.push(["Balance Due", formatMoney(totals.balanceDue, invoice.currency), true]);
   }
@@ -233,7 +245,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
   ensureSpace(totalsHeight);
 
   doc.setFontSize(10);
-  rows.forEach(([k, v, bold]) => {
+  (cfg.prices ? rows : []).forEach(([k, v, bold]) => {
     doc.setFont("helvetica", bold ? "bold" : "normal");
     doc.setTextColor(...(bold ? BRAND : INK));
     doc.text(k, totalsX, y + 12);
@@ -274,7 +286,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
   if (invoice.terms) renderParagraph("Terms", invoice.terms);
 
   // Payments received (invoices only)
-  if (!isEstimate && Array.isArray(invoice.payments) && invoice.payments.length > 0) {
+  if (cfg.payments && Array.isArray(invoice.payments) && invoice.payments.length > 0) {
     const headerH = 18;
     const rowH = 14;
     const blockH = headerH + invoice.payments.length * rowH + 6;
@@ -307,6 +319,22 @@ export async function exportInvoicePdf(invoice: Invoice) {
       doc.setDrawColor(...RULE);
       doc.line(margin, y, pageW - margin, y);
     }
+  }
+
+  // Signature lines (delivery notes)
+  if (cfg.signature) {
+    ensureSpace(70);
+    y += 44;
+    const half = (pageW - margin * 2 - 32) / 2;
+    doc.setDrawColor(...RULE);
+    doc.line(margin, y, margin + half, y);
+    doc.line(margin + half + 32, y, pageW - margin, y);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...MUTED);
+    doc.text("Received by (name and signature)", margin, y + 12);
+    doc.text("Date received", margin + half + 32, y + 12);
+    y += 20;
   }
 
   // Footer on every page

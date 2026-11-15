@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import { defaultPrefs, emptyBusiness } from "./storage";
 import { findCurrency } from "./currencies";
+import { docType } from "./docTypes";
 
 // A deliberately conservative parser for backup JSON. Everything is
 // coerced to the expected shape and length, and any `__proto__` /
@@ -27,6 +28,8 @@ export type BackupParseResult = {
   items?: SavedItem[];
   invoices?: Invoice[];
   estimates?: Invoice[];
+  receipts?: Invoice[];
+  deliveryNotes?: Invoice[];
   clients?: Client[];
   recurring?: RecurringSchedule[];
   businesses?: BusinessProfile[];
@@ -42,8 +45,6 @@ const MAX_INVOICES = 5000;
 const MAX_CLIENTS = 5000;
 const MAX_PAYMENTS = 500;
 
-const INVOICE_STATUSES = ["draft", "sent", "paid", "overdue"] as const;
-const ESTIMATE_STATUSES = ["draft", "sent", "accepted", "declined"] as const;
 const PAYMENT_METHODS: PaymentMethod[] = [
   "cash", "card", "bank-transfer", "check", "paypal", "stripe", "other",
 ];
@@ -183,8 +184,7 @@ function parseInvoice(raw: unknown, kind: DocumentKind): Invoice | null {
     : [];
 
   const currency = findCurrency(clean(strip(o.currency).code, 8));
-  const allowedStatuses: readonly string[] =
-    kind === "estimate" ? ESTIMATE_STATUSES : INVOICE_STATUSES;
+  const allowedStatuses: readonly string[] = docType(kind).statuses;
   const status = allowedStatuses.includes(o.status as string)
     ? (o.status as Invoice["status"])
     : "draft";
@@ -236,6 +236,7 @@ function parseInvoice(raw: unknown, kind: DocumentKind): Invoice | null {
     ...(clean(o.clientId, 64) ? { clientId: clean(o.clientId, 64) } : {}),
     ...(clean(o.recurringId, 64) ? { recurringId: clean(o.recurringId, 64) } : {}),
     ...(clean(o.businessId, 64) ? { businessId: clean(o.businessId, 64) } : {}),
+    ...(clean(o.sourceNumber, 64) ? { sourceNumber: clean(o.sourceNumber, 64) } : {}),
   };
 }
 
@@ -318,6 +319,8 @@ export function parseBackup(text: string): BackupParseResult {
 
   result.invoices = parseDocs(d.invoices, "invoice", "invoice", warnings);
   result.estimates = parseDocs(d.estimates, "estimate", "estimate", warnings);
+  result.receipts = parseDocs(d.receipts, "receipt", "receipt", warnings);
+  result.deliveryNotes = parseDocs(d.deliveryNotes, "delivery-note", "delivery note", warnings);
 
   if (Array.isArray(d.clients)) {
     const parsed = d.clients.slice(0, MAX_CLIENTS).map(parseClient).filter(Boolean) as Client[];
@@ -348,6 +351,8 @@ export function parseBackup(text: string): BackupParseResult {
   }
 
   if (
+    !result.receipts &&
+    !result.deliveryNotes &&
     !result.businesses &&
     !result.recurring &&
     !result.business &&

@@ -20,6 +20,8 @@ import {
   emptyBusiness,
   loadBusiness,
   loadClients,
+  loadDocs,
+  saveDocs,
   loadEstimates,
   loadInvoices,
   loadItems,
@@ -120,6 +122,8 @@ export default function SettingsPage() {
       items: loadItems(),
       invoices: loadInvoices(),
       estimates: loadEstimates(),
+      receipts: loadDocs("receipt"),
+      deliveryNotes: loadDocs("delivery-note"),
       clients: loadClients(),
       recurring: loadSchedules(),
     };
@@ -182,6 +186,12 @@ export default function SettingsPage() {
         if (result.estimates) {
           saveEstimates(mergeDocs(result.estimates, loadEstimates()));
         }
+        if (result.receipts) {
+          saveDocs("receipt", mergeDocs(result.receipts, loadDocs("receipt")));
+        }
+        if (result.deliveryNotes) {
+          saveDocs("delivery-note", mergeDocs(result.deliveryNotes, loadDocs("delivery-note")));
+        }
         if (result.clients) {
           saveClients(result.clients);
         }
@@ -201,9 +211,11 @@ export default function SettingsPage() {
   }
 
   function resetAll() {
-    if (!confirm("Erase all businesses, invoices, estimates, clients, recurring schedules, items, business info, and preferences? This cannot be undone.")) return;
+    if (!confirm("Erase all businesses, invoices, estimates, receipts, delivery notes, clients, recurring schedules, items, business info, and preferences? This cannot be undone.")) return;
     saveInvoices([]);
     saveEstimates([]);
+    saveDocs("receipt", []);
+    saveDocs("delivery-note", []);
     saveClients([]);
     saveSchedules([]);
     clearBusinesses();

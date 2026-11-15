@@ -3,14 +3,14 @@
 import type { Invoice } from "@/lib/types";
 import { calcTotals, sumPayments } from "@/lib/totals";
 import { formatMoney } from "@/lib/currencies";
+import { docType } from "@/lib/docTypes";
 
 export function InvoicePreview({ invoice }: { invoice: Invoice }) {
   const totals = calcTotals(invoice);
   const hasShip = !!(invoice.shipTo && (invoice.shipTo.name || invoice.shipTo.address));
-  const isEstimate = invoice.kind === "estimate";
-  const docTitle = isEstimate ? "ESTIMATE" : "INVOICE";
-  const docLabel = isEstimate ? "Estimate" : "Invoice";
-  const dueLabel = isEstimate ? "Valid until" : "Due";
+  const cfg = docType(invoice.kind);
+  const docTitle = cfg.title;
+  const docLabel = cfg.label;
   const paidTotal = sumPayments(invoice);
   const paymentsList = invoice.payments ?? [];
 
@@ -41,8 +41,9 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
           <div className="text-3xl font-extrabold tracking-tight text-brand-700">{docTitle}</div>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
             <dt className="text-ink-500">{docLabel} #</dt><dd className="font-medium">{invoice.number}</dd>
-            <dt className="text-ink-500">Issue</dt><dd className="font-medium">{invoice.issueDate}</dd>
-            <dt className="text-ink-500">{dueLabel}</dt><dd className="font-medium">{invoice.dueDate}</dd>
+            <dt className="text-ink-500">{cfg.dueLabel ? "Issue" : "Date"}</dt><dd className="font-medium">{invoice.issueDate}</dd>
+            {cfg.dueLabel && (<><dt className="text-ink-500">{cfg.dueLabel}</dt><dd className="font-medium">{invoice.dueDate}</dd></>)}
+            {invoice.sourceNumber && (<><dt className="text-ink-500">Invoice #</dt><dd className="font-medium">{invoice.sourceNumber}</dd></>)}
             {invoice.poNumber && (<><dt className="text-ink-500">PO</dt><dd className="font-medium">{invoice.poNumber}</dd></>)}
           </dl>
         </div>
@@ -52,7 +53,7 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
 
       <div className="grid grid-cols-2 gap-6">
         <div>
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-500">Bill To</div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-500">{cfg.partyLabel}</div>
           <div className="text-sm font-semibold">{invoice.billTo.name || "—"}</div>
           <div className="whitespace-pre-line text-xs text-ink-600">{invoice.billTo.address}</div>
           <div className="text-xs text-ink-600">{invoice.billTo.email}</div>
@@ -74,8 +75,8 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
           <tr className="bg-ink-50 text-left text-[10px] uppercase tracking-wider text-ink-500">
             <th className="px-3 py-2">Description</th>
             <th className="px-3 py-2 text-right">Qty</th>
-            <th className="px-3 py-2 text-right">Rate</th>
-            <th className="px-3 py-2 text-right">Amount</th>
+            {cfg.prices && <th className="px-3 py-2 text-right">Rate</th>}
+            {cfg.prices && <th className="px-3 py-2 text-right">Amount</th>}
           </tr>
         </thead>
         <tbody>
@@ -85,14 +86,15 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
               <tr key={item.id} className="border-b border-ink-100 align-top">
                 <td className="px-3 py-3">{item.description || <span className="text-ink-300">—</span>}</td>
                 <td className="px-3 py-3 text-right">{item.quantity}</td>
-                <td className="px-3 py-3 text-right">{formatMoney(item.rate, invoice.currency)}</td>
-                <td className="px-3 py-3 text-right font-medium">{formatMoney(amount, invoice.currency)}</td>
+                {cfg.prices && <td className="px-3 py-3 text-right">{formatMoney(item.rate, invoice.currency)}</td>}
+                {cfg.prices && <td className="px-3 py-3 text-right font-medium">{formatMoney(amount, invoice.currency)}</td>}
               </tr>
             );
           })}
         </tbody>
       </table>
 
+      {cfg.prices && (
       <div className="mt-6 flex justify-end">
         <div className="w-full max-w-xs">
           <Row label="Subtotal" value={formatMoney(totals.subtotal, invoice.currency)} />
@@ -113,7 +115,7 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
           )}
           <div className="my-2 border-t border-ink-200" />
           <Row label="Total" value={formatMoney(totals.total, invoice.currency)} bold />
-          {!isEstimate && paidTotal > 0 && (
+          {cfg.payments && paidTotal > 0 && (
             <>
               <Row label="Amount paid" value={`- ${formatMoney(paidTotal, invoice.currency)}`} />
               <div className="my-2 border-t border-ink-200" />
@@ -127,8 +129,9 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
           )}
         </div>
       </div>
+      )}
 
-      {!isEstimate && paymentsList.length > 0 && (
+      {cfg.payments && paymentsList.length > 0 && (
         <div className="mt-6 rounded-md border border-ink-100">
           <div className="border-b border-ink-100 bg-ink-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-ink-500">
             Payments
@@ -170,6 +173,17 @@ export function InvoicePreview({ invoice }: { invoice: Invoice }) {
       <div className="mt-10 border-t border-ink-100 pt-3 text-center text-[10px] uppercase tracking-wider text-ink-400">
         AnnexInvoice — {invoice.business.name || "Annex Logistics"}
       </div>
+      {cfg.signature && (
+        <div className="mt-10 grid grid-cols-2 gap-8 text-xs text-ink-600">
+          {["Received by (name and signature)", "Date received"].map((label) => (
+            <div key={label}>
+              <div className="h-8 border-b border-ink-300" />
+              <div className="mt-1">{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
     </div>
   );
 }
