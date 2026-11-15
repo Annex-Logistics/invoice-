@@ -5,7 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Pause, Play, Repeat, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import type { Invoice, RecurringSchedule } from "@/lib/types";
-import { loadInvoices, loadSchedules, removeSchedule, todayISO, upsertSchedule } from "@/lib/storage";
+import {
+  loadCurrentInvoices,
+  loadSchedules,
+  removeSchedule,
+  todayISO,
+  upsertSchedule,
+} from "@/lib/storage";
 import { frequencyLabel, nextRunDate, occurrence } from "@/lib/recurring";
 import { calcTotals } from "@/lib/totals";
 import { formatMoney } from "@/lib/currencies";
@@ -22,8 +28,11 @@ export default function RecurringPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
 
   useEffect(() => {
-    setSchedules(loadSchedules());
-    setInvoices(loadInvoices());
+    // Only this business's schedules (their source invoice is ours).
+    const mine = loadCurrentInvoices();
+    const ids = new Set(mine.map((i) => i.id));
+    setSchedules(loadSchedules().filter((s) => ids.has(s.sourceInvoiceId) || s.problem));
+    setInvoices(mine);
   }, []);
 
   const generatedCount = useMemo(() => {
@@ -36,7 +45,7 @@ export default function RecurringPage() {
 
   function save(next: RecurringSchedule) {
     upsertSchedule(next);
-    setSchedules(loadSchedules());
+    setSchedules((prev) => prev.map((s) => (s.id === next.id ? next : s)));
   }
 
   function togglePause(s: RecurringSchedule) {
@@ -52,7 +61,7 @@ export default function RecurringPage() {
   function remove(s: RecurringSchedule) {
     if (!confirm("Delete this schedule? Invoices it already created are kept.")) return;
     removeSchedule(s.id);
-    setSchedules(loadSchedules());
+    setSchedules((prev) => prev.filter((x) => x.id !== s.id));
   }
 
   return (

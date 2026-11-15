@@ -1,5 +1,6 @@
 import type {
   Business,
+  BusinessProfile,
   Client,
   DocumentKind,
   Invoice,
@@ -28,6 +29,8 @@ export type BackupParseResult = {
   estimates?: Invoice[];
   clients?: Client[];
   recurring?: RecurringSchedule[];
+  businesses?: BusinessProfile[];
+  currentBusinessId?: string;
   warnings: string[];
 };
 
@@ -232,6 +235,20 @@ function parseInvoice(raw: unknown, kind: DocumentKind): Invoice | null {
     ...(payments.length ? { payments } : {}),
     ...(clean(o.clientId, 64) ? { clientId: clean(o.clientId, 64) } : {}),
     ...(clean(o.recurringId, 64) ? { recurringId: clean(o.recurringId, 64) } : {}),
+    ...(clean(o.businessId, 64) ? { businessId: clean(o.businessId, 64) } : {}),
+  };
+}
+
+function parseProfile(raw: unknown): BusinessProfile | null {
+  const o = strip(raw);
+  const id = clean(o.id, 64);
+  if (!id) return null;
+  return {
+    id,
+    business: parseBusiness(o.business),
+    prefs: parsePrefs(o.prefs),
+    counter: Math.max(0, Math.floor(num(o.counter))),
+    estimateCounter: Math.max(0, Math.floor(num(o.estimateCounter))),
   };
 }
 
@@ -318,7 +335,20 @@ export function parseBackup(text: string): BackupParseResult {
     result.recurring = parsed;
   }
 
+  if (Array.isArray(d.businesses)) {
+    const parsed = d.businesses.slice(0, 100).map(parseProfile).filter(Boolean) as BusinessProfile[];
+    if (parsed.length !== d.businesses.length) {
+      warnings.push(`Skipped ${d.businesses.length - parsed.length} invalid business(es).`);
+    }
+    if (parsed.length) {
+      result.businesses = parsed;
+      const cur = clean(d.currentBusinessId, 64);
+      if (cur && parsed.some((p) => p.id === cur)) result.currentBusinessId = cur;
+    }
+  }
+
   if (
+    !result.businesses &&
     !result.recurring &&
     !result.business &&
     !result.prefs &&

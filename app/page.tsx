@@ -9,22 +9,34 @@ import { DEFAULT_CURRENCY, formatMoney } from "@/lib/currencies";
 import { currenciesByUse, summarize } from "@/lib/reports";
 import { calcTotals } from "@/lib/totals";
 import type { Invoice } from "@/lib/types";
-import { loadInvoices, saveInvoices, saveBusiness, loadBusiness, todayISO } from "@/lib/storage";
+import {
+  getCurrentBusinessId,
+  loadBusiness,
+  loadCurrentInvoices,
+  loadInvoices,
+  saveBusiness,
+  saveInvoices,
+  todayISO,
+} from "@/lib/storage";
 import { sampleInvoices } from "@/lib/sample";
 
 export default function DashboardPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
 
   useEffect(() => {
-    setInvoices(loadInvoices());
+    setInvoices(loadCurrentInvoices());
   }, []);
 
   function loadSample() {
     const biz = loadBusiness();
     const samples = sampleInvoices();
     if (!biz.name) saveBusiness(samples[0].business);
-    saveInvoices(samples);
-    setInvoices(samples);
+    // Add to this business only; never touch other businesses' invoices.
+    const businessId = getCurrentBusinessId();
+    const stamped = samples.map((s) => ({ ...s, businessId }));
+    const others = loadInvoices().filter((i) => i.businessId && i.businessId !== businessId);
+    saveInvoices([...stamped, ...others]);
+    setInvoices(stamped);
   }
 
   // Money tiles cover the most-used currency only: amounts in different

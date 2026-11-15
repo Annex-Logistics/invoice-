@@ -6,7 +6,7 @@ import { Plus, Search, FileText, Repeat } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { Invoice, InvoiceStatus } from "@/lib/types";
-import { loadInvoices } from "@/lib/storage";
+import { loadCurrentInvoices } from "@/lib/storage";
 import { calcTotals } from "@/lib/totals";
 import { formatMoney } from "@/lib/currencies";
 
@@ -24,7 +24,7 @@ export default function InvoicesPage() {
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    setInvoices(loadInvoices());
+    setInvoices(loadCurrentInvoices());
   }, []);
 
   const filtered = useMemo(() => {

@@ -8,7 +8,7 @@ import type { Client, Invoice } from "@/lib/types";
 import {
   createId,
   loadClients,
-  loadInvoices,
+  loadCurrentInvoices,
   removeClient,
   upsertClient,
 } from "@/lib/storage";
@@ -31,7 +31,7 @@ export default function ClientsPage() {
 
   useEffect(() => {
     setClients(loadClients());
-    setInvoices(loadInvoices());
+    setInvoices(loadCurrentInvoices());
   }, []);
 
   const stats = useMemo(() => {

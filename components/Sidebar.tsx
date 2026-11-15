@@ -15,6 +15,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { Logo } from "./Logo";
+import { BusinessSwitcher } from "./BusinessSwitcher";
 
 const nav = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard },
@@ -34,7 +35,8 @@ export function Sidebar() {
         <Logo />
       </div>
 
-      <div className="px-4 pt-4">
+      <div className="space-y-3 px-4 pt-4">
+        <BusinessSwitcher />
         <Link href="/invoices/new" className="btn-primary w-full">
           <Plus className="h-4 w-4" />
           New invoice

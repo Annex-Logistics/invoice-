@@ -90,3 +90,44 @@ test.describe("buildInvoiceMailto", () => {
     expect(body).toContain("Balance due: $150.00");
   });
 });
+
+test.describe("multi-business backups", () => {
+  test("businesses, the active one and document owners round-trip", () => {
+    const profile = (id: string, name: string) => ({
+      id,
+      business: { name, email: "", phone: "", address: "", website: "" },
+      prefs: {
+        numberPrefix: id === "b2" ? "AR-" : "INV-",
+        nextNumber: 5,
+        numberPadding: 4,
+        defaultTerms: "t",
+        defaultTaxLabel: "VAT",
+        defaultTaxPercent: 7.5,
+        defaultCurrencyCode: "NGN",
+        defaultDueDays: 7,
+      },
+      counter: 4,
+      estimateCounter: 1,
+    });
+    const result = parseBackup(
+      JSON.stringify({
+        businesses: [profile("b1", "Annex Logistics"), profile("b2", "Annex Rides"), { name: "no id" }],
+        currentBusinessId: "b2",
+        invoices: [makeInvoice({ businessId: "b2" })],
+      })
+    );
+    expect(result.businesses?.map((b) => b.business.name)).toEqual(["Annex Logistics", "Annex Rides"]);
+    expect(result.businesses?.[1].prefs.numberPrefix).toBe("AR-");
+    expect(result.businesses?.[1].counter).toBe(4);
+    expect(result.currentBusinessId).toBe("b2");
+    expect(result.invoices?.[0].businessId).toBe("b2");
+    expect(result.warnings).toContain("Skipped 1 invalid business(es).");
+  });
+
+  test("an unknown currentBusinessId is dropped", () => {
+    const result = parseBackup(
+      JSON.stringify({ businesses: [{ id: "b1", business: { name: "X" } }], currentBusinessId: "nope" })
+    );
+    expect(result.currentBusinessId).toBeUndefined();
+  });
+});

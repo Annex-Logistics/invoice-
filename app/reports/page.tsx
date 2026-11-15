@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BarChart3, FileText, TrendingUp, Wallet } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import type { Client, Invoice } from "@/lib/types";
-import { loadClients, loadInvoices, todayISO } from "@/lib/storage";
+import { loadClients, loadCurrentInvoices, todayISO } from "@/lib/storage";
 import { calcTotals } from "@/lib/totals";
 import { formatMoney, DEFAULT_CURRENCY } from "@/lib/currencies";
 import { matchClient } from "@/lib/clients";
@@ -28,7 +28,7 @@ export default function ReportsPage() {
   const [currencyCode, setCurrencyCode] = useState("");
 
   useEffect(() => {
-    setAllInvoices(loadInvoices());
+    setAllInvoices(loadCurrentInvoices());
     setClients(loadClients());
   }, []);
 

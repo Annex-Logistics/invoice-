@@ -4,9 +4,17 @@ import { useEffect, useState } from "react";
 import { Check, Save, Download, Trash2, Upload, Plus } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LogoUpload } from "@/components/LogoUpload";
-import type { Business, InvoicePrefs, SavedItem } from "@/lib/types";
+import type { Business, BusinessProfile, Invoice, InvoicePrefs, SavedItem } from "@/lib/types";
 import { CURRENCIES } from "@/lib/currencies";
 import {
+  addBusiness,
+  businessDocCount,
+  clearBusinesses,
+  getCurrentBusinessId,
+  listBusinesses,
+  removeBusiness,
+  restoreBusinesses,
+  switchBusiness,
   createId,
   defaultPrefs,
   emptyBusiness,
@@ -37,12 +45,32 @@ export default function SettingsPage() {
   const [newDescription, setNewDescription] = useState("");
   const [newRate, setNewRate] = useState<number | "">("");
   const [savedAt, setSavedAt] = useState<string>("");
+  const [profiles, setProfiles] = useState<BusinessProfile[]>([]);
+  const [currentBusinessId, setCurrentBusinessId] = useState("");
 
   useEffect(() => {
     setBusiness(loadBusiness());
     setPrefs(loadPrefs());
     setItems(loadItems());
+    setProfiles(listBusinesses());
+    setCurrentBusinessId(getCurrentBusinessId());
   }, []);
+
+  function switchTo(id: string) {
+    if (switchBusiness(id)) window.location.reload();
+  }
+
+  function addNewBusiness() {
+    const entered = window.prompt("Name of the new business:");
+    if (entered === null) return;
+    addBusiness(entered || "New business");
+    window.location.reload();
+  }
+
+  function deleteBusiness(p: BusinessProfile) {
+    if (!confirm(`Delete "${p.business.name || "Untitled business"}"? It has no documents.`)) return;
+    if (removeBusiness(p.id)) setProfiles(listBusinesses());
+  }
 
   function patchBiz(p: Partial<Business>) {
     setBusiness((prev) => ({ ...prev, ...p }));
@@ -76,7 +104,9 @@ export default function SettingsPage() {
     const payload = {
       exportedAt: new Date().toISOString(),
       app: "AnnexInvoice",
-      version: 2,
+      version: 3,
+      currentBusinessId: getCurrentBusinessId(),
+      businesses: listBusinesses(),
       business: loadBusiness(),
       prefs: loadPrefs(),
       items: loadItems(),
@@ -108,11 +138,29 @@ export default function SettingsPage() {
     reader.onload = () => {
       try {
         const result = parseBackup(String(reader.result));
-        if (result.business) {
+        // A full (v3) backup restores every business. An older
+        // single-business backup only replaces the ACTIVE business's
+        // documents; other businesses are left alone.
+        const multi = !!result.businesses;
+        const currentId = getCurrentBusinessId();
+        const mergeDocs = (incoming: Invoice[], existing: Invoice[]) =>
+          multi
+            ? incoming
+            : [
+                ...incoming.map((d) => ({ ...d, businessId: currentId })),
+                ...existing.filter((d) => d.businessId && d.businessId !== currentId),
+              ];
+        if (result.businesses) {
+          restoreBusinesses(result.businesses, result.currentBusinessId);
+          setBusiness(loadBusiness());
+          setPrefs(loadPrefs());
+          setProfiles(listBusinesses());
+          setCurrentBusinessId(getCurrentBusinessId());
+        } else if (result.business) {
           saveBusiness(result.business);
           setBusiness(result.business);
         }
-        if (result.prefs) {
+        if (result.prefs && !multi) {
           savePrefs(result.prefs);
           setPrefs(result.prefs);
         }
@@ -121,10 +169,10 @@ export default function SettingsPage() {
           setItems(result.items);
         }
         if (result.invoices) {
-          saveInvoices(result.invoices);
+          saveInvoices(mergeDocs(result.invoices, loadInvoices()));
         }
         if (result.estimates) {
-          saveEstimates(result.estimates);
+          saveEstimates(mergeDocs(result.estimates, loadEstimates()));
         }
         if (result.clients) {
           saveClients(result.clients);
@@ -145,17 +193,20 @@ export default function SettingsPage() {
   }
 
   function resetAll() {
-    if (!confirm("Erase all invoices, estimates, clients, recurring schedules, items, business info, and preferences? This cannot be undone.")) return;
+    if (!confirm("Erase all businesses, invoices, estimates, clients, recurring schedules, items, business info, and preferences? This cannot be undone.")) return;
     saveInvoices([]);
     saveEstimates([]);
     saveClients([]);
     saveSchedules([]);
+    clearBusinesses();
     saveItems([]);
     savePrefs(defaultPrefs());
     saveBusiness(emptyBusiness());
     setBusiness(emptyBusiness());
     setPrefs(defaultPrefs());
     setItems([]);
+    setProfiles(listBusinesses());
+    setCurrentBusinessId(getCurrentBusinessId());
     alert("Everything has been cleared from this browser.");
   }
 
@@ -308,6 +359,58 @@ export default function SettingsPage() {
               ))}
             </ul>
           )}
+        </section>
+
+        <section id="businesses" className="card mt-6 scroll-mt-6 p-5">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-ink-900">Businesses</h2>
+              <p className="mt-1 text-xs text-ink-500">
+                Invoice as more than one business. Each has its own brand, numbering, defaults,
+                invoices and estimates; clients and saved items are shared. The Brand and default
+                sections above edit the active business.
+              </p>
+            </div>
+            <button className="btn-secondary flex-none" onClick={addNewBusiness}>
+              <Plus className="h-4 w-4" /> Add business
+            </button>
+          </div>
+          <ul className="mt-4 divide-y divide-ink-100 rounded-lg border border-ink-100">
+            {profiles.map((p) => {
+              const isCurrent = p.id === currentBusinessId;
+              const docs = isCurrent ? null : businessDocCount(p.id);
+              return (
+                <li key={p.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+                  <span className="min-w-0 flex-1 truncate font-medium text-ink-900">
+                    {p.business.name || "Untitled business"}
+                  </span>
+                  {isCurrent ? (
+                    <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">
+                      Active
+                    </span>
+                  ) : (
+                    <>
+                      <span className="text-xs text-ink-500">
+                        {docs} document{docs === 1 ? "" : "s"}
+                      </span>
+                      <button className="btn-ghost !py-1 text-xs" onClick={() => switchTo(p.id)}>
+                        Switch
+                      </button>
+                      <button
+                        className="btn-ghost !px-2 !py-1 text-ink-400 hover:text-rose-600 disabled:opacity-40"
+                        onClick={() => deleteBusiness(p)}
+                        disabled={(docs ?? 0) > 0}
+                        aria-label={`Delete ${p.business.name || "Untitled business"}`}
+                        title={(docs ?? 0) > 0 ? "Only a business with no documents can be deleted" : "Delete"}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </section>
 
         <section className="card mt-6 p-5">

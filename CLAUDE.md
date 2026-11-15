@@ -327,9 +327,22 @@ session can take on:
    computed from the anchor date, so month-ends don't drift. Pure logic
    in `lib/recurring.ts`; UI in `components/RecurringModal.tsx` and
    `/recurring`. Resuming a paused schedule skips the missed dates.
-5. **Multiple businesses.** Everything assumes one. Would need a
-   `businesses` list in storage + a current-business picker in the
-   top bar.
+5. ~~**Multiple businesses.**~~ Done (Nov 2026). Switcher in the
+   sidebar / mobile header; managed under Settings → Businesses.
+   **Design:** the ACTIVE business still lives in the original keys
+   (`business.v1`, `prefs.v1`, counters), so `loadBusiness()` /
+   `loadPrefs()` callers didn't change. All businesses are
+   `BusinessProfile`s in `annexinvoice.businesses.v1`;
+   `switchBusiness()` syncs the active keys into its profile and loads
+   the target's. Documents carry `businessId` (stamped on first run by
+   `ensureBusinesses()`); lists/totals/reports use
+   `loadCurrentInvoices()` / `loadCurrentEstimates()`. Numbering is per
+   business (`nextInvoiceNumber(businessId)`); recurring runs number
+   from the source's business. Clients and saved items are shared.
+   Switching reloads the page. Only an inactive business with no
+   documents can be deleted. Backups are v3 (`businesses` +
+   `currentBusinessId`); importing an older single-business backup
+   replaces only the active business's documents.
 6. **Dark mode.** Not implemented. The color tokens are already
    defined in `tailwind.config.ts`; would need a `prefers-color-scheme`
    branch + `dark:` variants on the card/field classes.

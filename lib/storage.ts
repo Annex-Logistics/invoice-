@@ -4,6 +4,7 @@ import type {
   Business,
   Client,
   Invoice,
+  BusinessProfile,
   InvoicePrefs,
   RecurringSchedule,
   SavedItem,
@@ -20,6 +21,8 @@ const PREFS_KEY     = "annexinvoice.prefs.v1";
 const ITEMS_KEY     = "annexinvoice.items.v1";
 const CLIENTS_KEY   = "annexinvoice.clients.v1";
 const RECURRING_KEY = "annexinvoice.recurring.v1";
+const BUSINESSES_KEY = "annexinvoice.businesses.v1";
+const CURRENT_BUSINESS_KEY = "annexinvoice.currentBusiness.v1";
 
 function isBrowser() {
   return typeof window !== "undefined";
@@ -129,7 +132,12 @@ export function nextEstimateNumber(): string {
   const padding = prefs.estimateNumberPadding ?? 4;
   const seed    = prefs.estimateNextNumber    ?? 1;
   const format = (n: number) => `${prefix}${String(n).padStart(padding, "0")}`;
-  const used = new Set(loadEstimates().map((e) => e.number));
+  const currentId = getCurrentBusinessId();
+  const used = new Set(
+    loadEstimates()
+      .filter((e) => (e.businessId ?? currentId) === currentId)
+      .map((e) => e.number)
+  );
   let next = Math.max(stored, seed - 1) + 1;
   while (used.has(format(next))) next++;
   safeSet(EST_COUNTER_KEY, String(next));
@@ -275,19 +283,46 @@ export function saveBusiness(business: Business) {
   safeSet(BUSINESS_KEY, JSON.stringify(business));
 }
 
-export function nextInvoiceNumber(): string {
+/**
+ * Issue the next invoice number for a business (default: the active
+ * one). Each business has its own sequence. Sample data, imported
+ * backups and hand-edited numbers don't move the counter, so numbers
+ * already used by that business's invoices are skipped.
+ */
+export function nextInvoiceNumber(businessId?: string): string {
   if (!isBrowser()) return "INV-0001";
-  const prefs = loadPrefs();
-  const raw = window.localStorage.getItem(COUNTER_KEY);
-  const stored = raw ? parseInt(raw, 10) : 0;
+  const currentId = getCurrentBusinessId();
+  const targetId = businessId ?? currentId;
+  const used = new Set(
+    loadInvoices()
+      .filter((i) => (i.businessId ?? currentId) === targetId)
+      .map((i) => i.number)
+  );
+
+  if (targetId === currentId) {
+    const prefs = loadPrefs();
+    const raw = window.localStorage.getItem(COUNTER_KEY);
+    const stored = raw ? parseInt(raw, 10) : 0;
+    const format = (n: number) => `${prefs.numberPrefix}${String(n).padStart(prefs.numberPadding, "0")}`;
+    let next = Math.max(stored, prefs.nextNumber - 1) + 1;
+    while (used.has(format(next))) next++;
+    safeSet(COUNTER_KEY, String(next));
+    savePrefs({ ...prefs, nextNumber: next + 1 });
+    return format(next);
+  }
+
+  // A parked business (e.g. its recurring invoice ran while another
+  // business is active): number from its stored profile.
+  const profiles = loadProfiles();
+  const profile = profiles.find((p) => p.id === targetId);
+  if (!profile) return nextInvoiceNumber(currentId);
+  const prefs = profile.prefs;
   const format = (n: number) => `${prefs.numberPrefix}${String(n).padStart(prefs.numberPadding, "0")}`;
-  const used = new Set(loadInvoices().map((i) => i.number));
-  let next = Math.max(stored, prefs.nextNumber - 1) + 1;
-  // Sample data, imported backups and hand-edited numbers don't move the
-  // counter, so skip any number that's already taken.
+  let next = Math.max(profile.counter, prefs.nextNumber - 1) + 1;
   while (used.has(format(next))) next++;
-  safeSet(COUNTER_KEY, String(next));
-  savePrefs({ ...prefs, nextNumber: next + 1 });
+  profile.counter = next;
+  profile.prefs = { ...prefs, nextNumber: next + 1 };
+  saveProfiles(profiles);
   return format(next);
 }
 
@@ -402,6 +437,7 @@ export function newInvoice(business?: Business): Invoice {
     issueDate: issue,
     dueDate: addDaysISO(issue, prefs.defaultDueDays),
     poNumber: "",
+    businessId: isBrowser() ? getCurrentBusinessId() : undefined,
     business: biz,
     billTo: { name: "", email: "", address: "", phone: "" },
     shipTo: { name: "", email: "", address: "", phone: "" },
@@ -441,6 +477,7 @@ export function newEstimate(business?: Business): Invoice {
     issueDate: issue,
     dueDate: addDaysISO(issue, validDays), // "valid until"
     poNumber: "",
+    businessId: isBrowser() ? getCurrentBusinessId() : undefined,
     business: biz,
     billTo: { name: "", email: "", address: "", phone: "" },
     shipTo: { name: "", email: "", address: "", phone: "" },
@@ -530,7 +567,7 @@ export function runDueSchedules(today = todayISO()): number {
       if (!exists) {
         const inv = buildRunInvoice(source, s, runDate, {
           id: createId(),
-          number: nextInvoiceNumber(),
+          number: nextInvoiceNumber(source.businessId),
           now: new Date().toISOString(),
           newLineId: createId,
         });
@@ -547,4 +584,169 @@ export function runDueSchedules(today = todayISO()): number {
   if (created > 0) saveInvoices(invoices);
   if (changed) saveSchedules(schedules);
   return created;
+}
+
+// ── Businesses ─────────────────────────────────────────────────────────
+
+export function loadProfiles(): BusinessProfile[] {
+  if (!isBrowser()) return [];
+  try {
+    const raw = window.localStorage.getItem(BUSINESSES_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveProfiles(list: BusinessProfile[]) {
+  safeSet(BUSINESSES_KEY, JSON.stringify(list));
+}
+
+function readCounter(key: string): number {
+  const raw = window.localStorage.getItem(key);
+  const n = raw ? parseInt(raw, 10) : 0;
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Make sure at least one business profile exists. On first run after
+ * upgrading, the existing single business becomes the first profile and
+ * every existing document is stamped as belonging to it.
+ */
+export function ensureBusinesses(): string {
+  const profiles = loadProfiles();
+  const current = window.localStorage.getItem(CURRENT_BUSINESS_KEY);
+  if (profiles.length > 0) {
+    if (current && profiles.some((p) => p.id === current)) return current;
+    safeSet(CURRENT_BUSINESS_KEY, profiles[0].id);
+    return profiles[0].id;
+  }
+  const id = createId();
+  saveProfiles([
+    {
+      id,
+      business: loadBusiness(),
+      prefs: loadPrefs(),
+      counter: readCounter(COUNTER_KEY),
+      estimateCounter: readCounter(EST_COUNTER_KEY),
+    },
+  ]);
+  safeSet(CURRENT_BUSINESS_KEY, id);
+  const stamp = (list: Invoice[]) => list.map((d) => (d.businessId ? d : { ...d, businessId: id }));
+  saveInvoices(stamp(loadInvoices()));
+  saveEstimates(stamp(loadEstimates()));
+  return id;
+}
+
+export function getCurrentBusinessId(): string {
+  if (!isBrowser()) return "";
+  return ensureBusinesses();
+}
+
+// Documents shown in lists, totals and reports: the active business's.
+export function ownedByCurrent(doc: Invoice, currentId = getCurrentBusinessId()): boolean {
+  return !doc.businessId || doc.businessId === currentId;
+}
+
+export function loadCurrentInvoices(): Invoice[] {
+  const id = getCurrentBusinessId();
+  return loadInvoices().filter((d) => ownedByCurrent(d, id));
+}
+
+export function loadCurrentEstimates(): Invoice[] {
+  const id = getCurrentBusinessId();
+  return loadEstimates().filter((d) => ownedByCurrent(d, id));
+}
+
+// Copy the active business's live keys into its profile record.
+export function syncActiveProfile(): BusinessProfile[] {
+  const id = getCurrentBusinessId();
+  const profiles = loadProfiles().map((p) =>
+    p.id === id
+      ? {
+          ...p,
+          business: loadBusiness(),
+          prefs: loadPrefs(),
+          counter: readCounter(COUNTER_KEY),
+          estimateCounter: readCounter(EST_COUNTER_KEY),
+        }
+      : p
+  );
+  saveProfiles(profiles);
+  return profiles;
+}
+
+export function listBusinesses(): BusinessProfile[] {
+  if (!isBrowser()) return [];
+  return syncActiveProfile();
+}
+
+function activate(target: BusinessProfile) {
+  saveBusiness(target.business);
+  savePrefs(target.prefs);
+  safeSet(COUNTER_KEY, String(target.counter));
+  safeSet(EST_COUNTER_KEY, String(target.estimateCounter));
+  safeSet(CURRENT_BUSINESS_KEY, target.id);
+}
+
+export function switchBusiness(id: string): boolean {
+  const profiles = syncActiveProfile();
+  const target = profiles.find((p) => p.id === id);
+  if (!target) return false;
+  activate(target);
+  return true;
+}
+
+// Create a business and make it active. Starts with the current
+// business's currency and tax defaults, and fresh numbering.
+export function addBusiness(name: string): BusinessProfile {
+  const profiles = syncActiveProfile();
+  const base = loadPrefs();
+  const profile: BusinessProfile = {
+    id: createId(),
+    business: { ...emptyBusiness(), name: name.trim().slice(0, 200) },
+    prefs: {
+      ...defaultPrefs(),
+      defaultCurrencyCode: base.defaultCurrencyCode,
+      defaultTaxLabel: base.defaultTaxLabel,
+      defaultTaxPercent: base.defaultTaxPercent,
+    },
+    counter: 0,
+    estimateCounter: 0,
+  };
+  saveProfiles([...profiles, profile]);
+  activate(profile);
+  return profile;
+}
+
+export function businessDocCount(id: string): number {
+  const currentId = getCurrentBusinessId();
+  const owns = (d: Invoice) => (d.businessId ?? currentId) === id;
+  return loadInvoices().filter(owns).length + loadEstimates().filter(owns).length;
+}
+
+// Only an inactive business with no documents can be removed, so no
+// document ever loses its owner.
+export function removeBusiness(id: string): boolean {
+  if (id === getCurrentBusinessId() || businessDocCount(id) > 0) return false;
+  saveProfiles(loadProfiles().filter((p) => p.id !== id));
+  return true;
+}
+
+// Restore businesses from a backup: replace profiles and load the
+// chosen one into the active keys.
+export function restoreBusinesses(profiles: BusinessProfile[], currentId?: string) {
+  if (profiles.length === 0) return;
+  saveProfiles(profiles);
+  activate(profiles.find((p) => p.id === currentId) ?? profiles[0]);
+}
+
+// Forget every business (used by "Reset everything").
+export function clearBusinesses() {
+  if (!isBrowser()) return;
+  window.localStorage.removeItem(BUSINESSES_KEY);
+  window.localStorage.removeItem(CURRENT_BUSINESS_KEY);
+  window.localStorage.removeItem(COUNTER_KEY);
+  window.localStorage.removeItem(EST_COUNTER_KEY);
 }

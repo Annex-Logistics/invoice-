@@ -39,6 +39,7 @@ import {
   duplicateDocument,
   loadClients,
   loadItems,
+  ownedByCurrent,
   removeDocument,
   saveBusiness,
   scheduleForInvoice,
@@ -117,7 +118,9 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
     const t = setTimeout(() => {
       upsertDocument(invoice);
       const bizSnapshot = JSON.stringify(invoice.business);
-      if (bizSnapshot !== initialBusinessRef.current) {
+      // Only the active business's settings follow edits made here; a
+      // document from another business keeps its own snapshot.
+      if (bizSnapshot !== initialBusinessRef.current && ownedByCurrent(invoice)) {
         saveBusiness(invoice.business);
         initialBusinessRef.current = bizSnapshot;
       }
