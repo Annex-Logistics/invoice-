@@ -39,8 +39,8 @@ exporter:
 - **Tailwind CSS 3.4** — tokens defined in `tailwind.config.ts`
   (brand-\* and ink-\* scales)
 - **lucide-react** icons
-- **jsPDF 4.2** for text-first PDF export — no html2canvas, no
-  server-side rendering of the PDF
+- **jsPDF 4.2** for text-first PDF export with embedded Inter — no
+  html2canvas, no server-side rendering of the PDF
 - **localStorage** for everything, mediated by
   `safeSet()` in `lib/storage.ts` (handles quota-exceeded gracefully)
 - Response headers via `proxy.ts` (Next 16's name for middleware;
@@ -384,8 +384,18 @@ session can take on:
    - Mobile: the bottom bar gained a **More** menu (Receipts, Delivery
      notes, Recurring, Clients, Settings), and the editor's status /
      quick-action rail now shows below the form on small screens.
-9. **PDF typography.** Currently Helvetica built-in. Could embed Inter
-   via jsPDF's font loader to match the on-screen preview exactly.
+9. ~~**PDF typography.**~~ Done (Nov 2026), and it was more than
+   cosmetic. jsPDF's built-in Helvetica only covers Windows-1252, so
+   the Naira sign printed as a broken bar with stretched digits that
+   ran off the page, and names like "Chịdị" were garbled.
+   `lib/pdf.ts` now embeds Inter Regular + Bold (`public/fonts/*.ttf`,
+   fetched on first export, cached for the session) and falls back to
+   Helvetica if the fetch fails. Use `doc.setFont(FONT, …)`, never a
+   hard-coded family. Multi-line addresses used to overprint the lines
+   below them; all text blocks now go through `drawLines()`, which
+   splits on newlines and wraps. **Check PDF changes by eye**: generate
+   one with a Naira invoice and a multi-line address and open it; the
+   e2e tests only assert structure (valid PDF, font embedded).
 10. **Timezone of dueDate comparisons.** Already fixed, but worth a
     pass with a user at a non-UTC offset.
 

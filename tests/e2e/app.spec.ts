@@ -82,6 +82,24 @@ test("Download PDF produces a valid PDF", async ({ page }) => {
   const bytes = await readFile(await download.path());
   expect(bytes.subarray(0, 5).toString()).toBe("%PDF-");
   expect(bytes.length).toBeGreaterThan(2000);
+  // Inter is embedded (as TrueType), so any character the app shows prints.
+  const text = bytes.toString("latin1");
+  expect(text).toContain("/FontFile2");
+  expect(text).toMatch(/\/BaseFont\s*\/[A-Z+]*Inter/);
+});
+
+test("PDF export still works when the fonts cannot be fetched", async ({ page }) => {
+  await page.route("**/fonts/*.ttf", (route) => route.abort());
+  await loadSampleData(page);
+  await page.getByText("INV-0003").click();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Download PDF" }).first().click(),
+  ]);
+  const text = (await readFile(await download.path())).toString("latin1");
+  expect(text.startsWith("%PDF-")).toBe(true);
+  expect(text).toContain("Helvetica");
+  expect(text).not.toContain("/FontFile2");
 });
 
 test("an estimate converts to an invoice and keeps its client", async ({ page }) => {

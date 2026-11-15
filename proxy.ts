@@ -49,6 +49,6 @@ export const config = {
     // Skip static assets, the Next.js runtime chunks, and the favicon —
     // they don't need per-request CSP and running the proxy on them
     // defeats CDN caching.
-    "/((?!_next/static|_next/image|favicon\\.svg|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.svg|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|ttf)$).*)",
   ],
 };

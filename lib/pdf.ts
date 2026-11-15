@@ -5,6 +5,45 @@ import { calcTotals, sumPayments } from "./totals";
 import { formatMoney } from "./currencies";
 import { docType } from "./docTypes";
 
+// Inter, embedded so the PDF matches the on-screen preview and can draw
+// any character the app can show. jsPDF's built-in Helvetica only covers
+// Windows-1252: the Naira sign came out as a broken bar with stretched
+// digits, and names like "Chịdị" were garbled.
+// The TTFs (public/fonts, ~340 KB each) are fetched only on first export
+// and kept for the session.
+const FONT_FILES = [
+  { file: "Inter-Regular.ttf", style: "normal" },
+  { file: "Inter-Bold.ttf", style: "bold" },
+] as const;
+
+let fontCache: Promise<string[]> | null = null;
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const CHUNK = 0x8000; // keep String.fromCharCode's argument list small
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+function loadFonts(): Promise<string[]> {
+  if (!fontCache) {
+    fontCache = Promise.all(
+      FONT_FILES.map(async ({ file }) => {
+        const res = await fetch(`/fonts/${file}`);
+        if (!res.ok) throw new Error(`Font ${file}: HTTP ${res.status}`);
+        return toBase64(new Uint8Array(await res.arrayBuffer()));
+      })
+    );
+    // Don't cache a failure: the next export should try again.
+    fontCache.catch(() => {
+      fontCache = null;
+    });
+  }
+  return fontCache;
+}
+
 /**
  * Generates a PDF from an invoice using jsPDF directly
  * (clean, text-first rendering — no html2canvas needed).
@@ -13,6 +52,20 @@ export async function exportInvoicePdf(invoice: Invoice) {
   const { default: jsPDF } = await import("jspdf");
 
   const doc = new jsPDF({ unit: "pt", format: "letter" });
+
+  // Fall back to Helvetica if the fonts can't be fetched (offline), so
+  // export still works for plain Latin text.
+  let FONT = "helvetica";
+  try {
+    const data = await loadFonts();
+    FONT_FILES.forEach(({ file, style }, i) => {
+      doc.addFileToVFS(file, data[i]);
+      doc.addFont(file, "Inter", style);
+    });
+    FONT = "Inter";
+  } catch (err) {
+    console.warn("[AnnexInvoice] PDF fonts unavailable, using Helvetica", err);
+  }
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const margin = 48;
@@ -24,7 +77,25 @@ export async function exportInvoicePdf(invoice: Invoice) {
   const MUTED = [99, 110, 130] as [number, number, number];
   const RULE  = [213, 217, 224] as [number, number, number];
 
-  doc.setFont("helvetica", "normal");
+  doc.setFont(FONT, "normal");
+
+  // Draw text blocks that may contain newlines (addresses) or be too
+  // wide: every entry is split on line breaks and wrapped to maxWidth.
+  // Returns the y after the last line. (Previously each entry advanced
+  // y by one line only, so a 3-line address overprinted what followed.)
+  function drawLines(entries: string[], x: number, startY: number, lineH: number, maxWidth: number): number {
+    let cy = startY;
+    for (const entry of entries) {
+      for (const raw of String(entry).split(/\r?\n/)) {
+        const wrapped: string[] = raw.trim() ? doc.splitTextToSize(raw, maxWidth) : [];
+        for (const line of wrapped) {
+          doc.text(line, x, cy);
+          cy += lineH;
+        }
+      }
+    }
+    return cy;
+  }
 
   // Header band
   doc.setFillColor(...BRAND);
@@ -49,12 +120,14 @@ export async function exportInvoicePdf(invoice: Invoice) {
     }
   }
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
+  // The right 220pt of the header belongs to the title and meta block.
+  const headerLeftW = pageW - margin - 220 - textX;
+  doc.setFont(FONT, "bold");
+  doc.setFontSize(20);
   doc.setTextColor(...INK);
-  doc.text(invoice.business.name || "Your business", textX, y);
+  let by = drawLines([invoice.business.name || "Your business"], textX, y, 23, headerLeftW) - 23 + 16;
 
-  doc.setFont("helvetica", "normal");
+  doc.setFont(FONT, "normal");
   doc.setFontSize(10);
   doc.setTextColor(...MUTED);
   const bizLines = [
@@ -62,12 +135,8 @@ export async function exportInvoicePdf(invoice: Invoice) {
     invoice.business.email,
     invoice.business.phone,
     invoice.business.website,
-  ].filter(Boolean);
-  let by = y + 16;
-  bizLines.forEach((line) => {
-    doc.text(line as string, textX, by);
-    by += 13;
-  });
+  ].filter(Boolean) as string[];
+  by = drawLines(bizLines, textX, by, 13, headerLeftW);
   // Ensure header row has at least the logo's height
   if (invoice.business.logoDataUrl) {
     by = Math.max(by, y + 56);
@@ -76,7 +145,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
   // Right side — big INVOICE / ESTIMATE
   const cfg = docType(invoice.kind);
   const docLabel = cfg.label;
-  doc.setFont("helvetica", "bold");
+  doc.setFont(FONT, "bold");
   // Longer titles ("DELIVERY NOTE") get a smaller size so they never
   // run into the business name on the left.
   const title = cfg.title;
@@ -86,7 +155,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
   doc.text(title, pageW - margin - titleW, y);
 
   // Document meta
-  doc.setFont("helvetica", "normal");
+  doc.setFont(FONT, "normal");
   doc.setFontSize(10);
   doc.setTextColor(...INK);
   const metaRows: Array<[string, string]> = [
@@ -99,11 +168,9 @@ export async function exportInvoicePdf(invoice: Invoice) {
   let my = y + 18;
   metaRows.forEach(([k, v]) => {
     doc.setTextColor(...MUTED);
-    const label = `${k}:`;
-    const labelW = doc.getTextWidth(label);
-    doc.text(label, pageW - margin - 140, my);
+    doc.text(`${k}:`, pageW - margin - 190, my);
     doc.setTextColor(...INK);
-    doc.text(String(v || "—"), pageW - margin - 140 + labelW + 6, my);
+    doc.text(String(v || "—"), pageW - margin, my, { align: "right" });
     my += 14;
   });
 
@@ -115,7 +182,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
   doc.line(margin, y, pageW - margin, y);
   y += 20;
 
-  doc.setFont("helvetica", "bold");
+  doc.setFont(FONT, "bold");
   doc.setFontSize(11);
   doc.setTextColor(...INK);
   doc.text(cfg.partyLabel, margin, y);
@@ -125,7 +192,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
     doc.text("Ship To", margin + (pageW - margin * 2) / 2, y);
   }
 
-  doc.setFont("helvetica", "normal");
+  doc.setFont(FONT, "normal");
   doc.setFontSize(10);
   doc.setTextColor(...INK);
   const billLines = [
@@ -135,11 +202,8 @@ export async function exportInvoicePdf(invoice: Invoice) {
     invoice.billTo.phone,
   ].filter(Boolean) as string[];
 
-  let ty = y + 16;
-  billLines.forEach((line) => {
-    doc.text(line, margin, ty);
-    ty += 13;
-  });
+  const partyW = (pageW - margin * 2) / 2 - 16;
+  let ty = drawLines(billLines, margin, y + 16, 13, hasShip ? partyW : pageW - margin * 2);
 
   if (hasShip) {
     const shipX = margin + (pageW - margin * 2) / 2;
@@ -149,12 +213,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
       invoice.shipTo!.email,
       invoice.shipTo!.phone,
     ].filter(Boolean) as string[];
-    let sy = y + 16;
-    shipLines.forEach((line) => {
-      doc.text(line, shipX, sy);
-      sy += 13;
-    });
-    ty = Math.max(ty, sy);
+    ty = Math.max(ty, drawLines(shipLines, shipX, y + 16, 13, partyW));
   }
 
   y = ty + 14;
@@ -163,12 +222,12 @@ export async function exportInvoicePdf(invoice: Invoice) {
   const tableTop = y;
   const colDesc = margin;
   // Without prices the quantity sits at the right edge.
-  const colQty  = cfg.prices ? pageW - margin - 300 : pageW - margin - 8;
-  const colRate = pageW - margin - 190;
+  const colQty  = cfg.prices ? pageW - margin - 250 : pageW - margin - 8;
+  const colRate = pageW - margin - 140;
 
   doc.setFillColor(243, 245, 250);
   doc.rect(margin, tableTop, pageW - margin * 2, 24, "F");
-  doc.setFont("helvetica", "bold");
+  doc.setFont(FONT, "bold");
   doc.setFontSize(10);
   doc.setTextColor(...INK);
   doc.text("Description", colDesc + 8, tableTop + 16);
@@ -179,7 +238,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
   }
 
   y = tableTop + 28;
-  doc.setFont("helvetica", "normal");
+  doc.setFont(FONT, "normal");
 
   const FOOTER_RESERVE = 40; // leave room for the page footer text
 
@@ -194,7 +253,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
     const amount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
     const descLines = doc.splitTextToSize(
       item.description || "—",
-      colQty - colDesc - (cfg.prices ? 16 : 70)
+      colQty - colDesc - 60
     );
     const rowH = Math.max(18, descLines.length * 13 + 6);
 
@@ -246,7 +305,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
 
   doc.setFontSize(10);
   (cfg.prices ? rows : []).forEach(([k, v, bold]) => {
-    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFont(FONT, bold ? "bold" : "normal");
     doc.setTextColor(...(bold ? BRAND : INK));
     doc.text(k, totalsX, y + 12);
     doc.text(v, valueX, y + 12, { align: "right" });
@@ -271,12 +330,12 @@ export async function exportInvoicePdf(invoice: Invoice) {
     const bodyLines = doc.splitTextToSize(text, pageW - margin * 2);
     const blockHeight = 14 + bodyLines.length * 12 + 10;
     ensureSpace(blockHeight);
-    doc.setFont("helvetica", "bold");
+    doc.setFont(FONT, "bold");
     doc.setFontSize(10);
     doc.setTextColor(...INK);
     doc.text(heading, margin, y);
     y += 14;
-    doc.setFont("helvetica", "normal");
+    doc.setFont(FONT, "normal");
     doc.setTextColor(...MUTED);
     doc.text(bodyLines, margin, y);
     y += bodyLines.length * 12 + 10;
@@ -292,7 +351,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
     const blockH = headerH + invoice.payments.length * rowH + 6;
     ensureSpace(blockH);
 
-    doc.setFont("helvetica", "bold");
+    doc.setFont(FONT, "bold");
     doc.setFontSize(10);
     doc.setTextColor(...INK);
     doc.text("Payments received", margin, y);
@@ -307,7 +366,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
     doc.text("Amount", pageW - margin - 8, y + 12, { align: "right" });
     y += headerH;
 
-    doc.setFont("helvetica", "normal");
+    doc.setFont(FONT, "normal");
     for (const p of invoice.payments) {
       doc.setTextColor(...INK);
       doc.text(p.date || "—", margin + 8, y + 11);
@@ -329,7 +388,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
     doc.setDrawColor(...RULE);
     doc.line(margin, y, margin + half, y);
     doc.line(margin + half + 32, y, pageW - margin, y);
-    doc.setFont("helvetica", "normal");
+    doc.setFont(FONT, "normal");
     doc.setFontSize(9);
     doc.setTextColor(...MUTED);
     doc.text("Received by (name and signature)", margin, y + 12);
@@ -341,7 +400,7 @@ export async function exportInvoicePdf(invoice: Invoice) {
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    doc.setFont("helvetica", "normal");
+    doc.setFont(FONT, "normal");
     doc.setFontSize(9);
     doc.setTextColor(...MUTED);
     const footer = `AnnexInvoice — ${invoice.business.name || "Annex Logistics"}`;
