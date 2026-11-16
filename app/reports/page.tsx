@@ -4,70 +4,56 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { BarChart3, FileText, TrendingUp, Wallet } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import type { Invoice } from "@/lib/types";
-import { loadInvoices, todayISO } from "@/lib/storage";
-import { calcTotals, sumPayments } from "@/lib/totals";
+import type { Client, Invoice } from "@/lib/types";
+import { loadClients, loadCurrentInvoices, todayISO } from "@/lib/storage";
+import { calcTotals } from "@/lib/totals";
 import { formatMoney, DEFAULT_CURRENCY } from "@/lib/currencies";
-
-type MonthlyBucket = {
-  key: string;        // yyyy-mm
-  label: string;      // e.g. "Nov 26"
-  invoiced: number;
-  collected: number;
-  count: number;
-};
+import { matchClient } from "@/lib/clients";
+import {
+  RANGE_PRESETS,
+  buildBuckets,
+  currenciesByUse,
+  filterDocs,
+  resolveRange,
+  summarize,
+  type RangePreset,
+} from "@/lib/reports";
 
 export default function ReportsPage() {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [allInvoices, setAllInvoices] = useState<Invoice[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [preset, setPreset] = useState<RangePreset>("12m");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [currencyCode, setCurrencyCode] = useState("");
 
   useEffect(() => {
-    setInvoices(loadInvoices());
+    setAllInvoices(loadCurrentInvoices());
+    setClients(loadClients());
   }, []);
 
-  const displayCurrency = invoices[0]?.currency ?? DEFAULT_CURRENCY;
+  const today = todayISO();
+  const currencies = useMemo(() => currenciesByUse(allInvoices), [allInvoices]);
+  // Never sum different currencies: report one at a time, defaulting to
+  // the most-used one.
+  const displayCurrency =
+    currencies.find((c) => c.code === currencyCode) ?? currencies[0] ?? DEFAULT_CURRENCY;
+  const range = useMemo(
+    () => resolveRange(preset, today, { from: customFrom, to: customTo }),
+    [preset, today, customFrom, customTo]
+  );
+  const invoices = useMemo(
+    () => filterDocs(allInvoices, range, displayCurrency.code),
+    [allInvoices, range, displayCurrency.code]
+  );
 
-  const stats = useMemo(() => {
-    const today = todayISO();
-    let invoiced = 0;
-    let collected = 0;
-    let outstanding = 0;
-    let overdue = 0;
-    for (const inv of invoices) {
-      const t = calcTotals(inv);
-      invoiced += t.total;
-      collected += sumPayments(inv);
-      if (inv.status !== "paid") {
-        outstanding += t.balanceDue;
-        if (inv.dueDate && inv.dueDate < today) overdue += t.balanceDue;
-      }
-    }
-    return { invoiced, collected, outstanding, overdue };
-  }, [invoices]);
-
-  const monthly = useMemo<MonthlyBucket[]>(() => {
-    // Last 12 months, oldest first.
-    const buckets: MonthlyBucket[] = [];
-    const now = new Date();
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const label = d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
-      buckets.push({ key, label, invoiced: 0, collected: 0, count: 0 });
-    }
-    for (const inv of invoices) {
-      if (!inv.issueDate) continue;
-      const key = inv.issueDate.slice(0, 7);
-      const bucket = buckets.find((b) => b.key === key);
-      if (!bucket) continue;
-      const t = calcTotals(inv);
-      bucket.invoiced += t.total;
-      bucket.collected += sumPayments(inv);
-      bucket.count++;
-    }
-    return buckets;
-  }, [invoices]);
-
-  const maxMonthly = Math.max(1, ...monthly.map((m) => Math.max(m.invoiced, m.collected)));
+  const stats = useMemo(() => summarize(invoices, today), [invoices, today]);
+  const buckets = useMemo(() => buildBuckets(invoices, range, today), [invoices, range, today]);
+  const maxBucket = Math.max(1, ...buckets.map((m) => Math.max(m.invoiced, m.collected)));
+  const rangeLabel =
+    preset === "custom"
+      ? `${range.from || "start"} to ${range.to || "today"}`
+      : RANGE_PRESETS.find((r) => r.value === preset)!.label.toLowerCase();
 
   const outstandingByClient = useMemo(() => {
     const map = new Map<
@@ -78,22 +64,27 @@ export default function ReportsPage() {
       if (inv.status === "paid") continue;
       const t = calcTotals(inv);
       if (t.balanceDue <= 0) continue;
-      const key = (inv.billTo.email || inv.billTo.name || "—").toLowerCase().trim();
+      // Group by saved client when we can attribute one (survives
+      // renames); otherwise by the bill-to email/name on the invoice.
+      const client = matchClient(inv, clients);
+      const key = client
+        ? `client:${client.id}`
+        : (inv.billTo.email || inv.billTo.name || "—").toLowerCase().trim();
       const existing = map.get(key);
       if (existing) {
         existing.outstanding += t.balanceDue;
         existing.invoiceCount++;
       } else {
         map.set(key, {
-          name: inv.billTo.name || inv.billTo.email || "Unknown",
-          email: inv.billTo.email,
+          name: client?.name || inv.billTo.name || inv.billTo.email || "Unknown",
+          email: client?.email || inv.billTo.email,
           outstanding: t.balanceDue,
           invoiceCount: 1,
         });
       }
     }
     return Array.from(map.values()).sort((a, b) => b.outstanding - a.outstanding);
-  }, [invoices]);
+  }, [invoices, clients]);
 
   const taxByLabel = useMemo(() => {
     const map = new Map<string, number>();
@@ -115,11 +106,60 @@ export default function ReportsPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-ink-900">Reports</h1>
           <p className="text-sm text-ink-500">
-            Monthly billing, outstanding balances by client, and tax collected on paid invoices.
+            Billing, outstanding balances by client, and tax collected, for invoices issued in the
+            selected period.
           </p>
         </div>
 
-        {invoices.length === 0 ? (
+        {allInvoices.length > 0 && (
+          <div className="card mb-6 flex flex-wrap items-end gap-3 p-4">
+            <label className="text-xs font-medium text-ink-600">
+              Period
+              <select
+                className="field mt-1"
+                value={preset}
+                onChange={(e) => setPreset(e.target.value as RangePreset)}
+              >
+                {RANGE_PRESETS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </label>
+            {preset === "custom" && (
+              <>
+                <label className="text-xs font-medium text-ink-600">
+                  From
+                  <input type="date" className="field mt-1" value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)} />
+                </label>
+                <label className="text-xs font-medium text-ink-600">
+                  To
+                  <input type="date" className="field mt-1" value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)} />
+                </label>
+              </>
+            )}
+            {currencies.length > 1 && (
+              <label className="text-xs font-medium text-ink-600">
+                Currency
+                <select
+                  className="field mt-1"
+                  value={displayCurrency.code}
+                  onChange={(e) => setCurrencyCode(e.target.value)}
+                >
+                  {currencies.map((c) => (
+                    <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <div className="ml-auto text-xs text-ink-500">
+              {invoices.length} invoice{invoices.length === 1 ? "" : "s"} in {displayCurrency.code}
+            </div>
+          </div>
+        )}
+
+        {allInvoices.length === 0 ? (
           <div className="card flex flex-col items-center justify-center p-10 text-center">
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-50">
               <BarChart3 className="h-6 w-6 text-brand-600" />
@@ -141,28 +181,40 @@ export default function ReportsPage() {
 
             <section className="card mt-6 p-5">
               <h2 className="mb-4 text-sm font-semibold text-ink-900">
-                Monthly billing <span className="font-normal text-ink-500">· last 12 months</span>
+                Billing <span className="font-normal text-ink-500">· {rangeLabel}</span>
               </h2>
               <div className="relative">
                 <div className="flex h-56 items-end gap-1">
-                  {monthly.map((m) => {
-                    const invH = Math.max(2, Math.round((m.invoiced / maxMonthly) * 100));
-                    const colH = Math.max(2, Math.round((m.collected / maxMonthly) * 100));
+                  {buckets.map((m, i) => {
+                    const invH = Math.max(2, Math.round((m.invoiced / maxBucket) * 100));
+                    const colH = Math.max(2, Math.round((m.collected / maxBucket) * 100));
                     return (
                       <div key={m.key} className="flex flex-1 flex-col items-center gap-1">
-                        <div className="flex h-48 w-full items-end justify-center gap-0.5">
-                          <div
-                            className="w-2 rounded-t bg-brand-500"
-                            style={{ height: `${invH}%` }}
-                            title={`${m.label}: invoiced ${formatMoney(m.invoiced, displayCurrency)}`}
-                          />
-                          <div
-                            className="w-2 rounded-t bg-emerald-500"
-                            style={{ height: `${colH}%` }}
-                            title={`${m.label}: collected ${formatMoney(m.collected, displayCurrency)}`}
-                          />
+                        {/* SVG attributes, not style={{}}: the production CSP
+                            bans inline styles. */}
+                        <svg
+                          className="h-48 w-[18px]"
+                          viewBox="0 0 18 100"
+                          preserveAspectRatio="none"
+                          role="img"
+                          aria-label={`${m.label}: invoiced ${formatMoney(m.invoiced, displayCurrency)}, collected ${formatMoney(m.collected, displayCurrency)}`}
+                        >
+                          <rect className="fill-brand-500" x="0" width="8" y={100 - invH} height={invH}>
+                            <title>{`${m.label}: invoiced ${formatMoney(m.invoiced, displayCurrency)}`}</title>
+                          </rect>
+                          <rect className="fill-emerald-500" x="10" width="8" y={100 - colH} height={colH}>
+                            <title>{`${m.label}: collected ${formatMoney(m.collected, displayCurrency)}`}</title>
+                          </rect>
+                        </svg>
+                        <div
+                          className={
+                            "text-[10px] font-medium text-ink-500 " +
+                            // Thin out labels on phones when there are many bars.
+                            (buckets.length > 12 && i % 2 ? "invisible sm:visible" : "")
+                          }
+                        >
+                          {m.label}
                         </div>
-                        <div className="text-[10px] font-medium text-ink-500">{m.label}</div>
                       </div>
                     );
                   })}

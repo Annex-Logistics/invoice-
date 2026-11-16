@@ -9,16 +9,23 @@ import {
   FileText,
   LayoutDashboard,
   Plus,
+  Receipt,
+  Repeat,
+  Truck,
   Settings,
   Users,
   HelpCircle,
 } from "lucide-react";
 import { Logo } from "./Logo";
+import { BusinessSwitcher } from "./BusinessSwitcher";
 
 const nav = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard },
   { href: "/invoices",  label: "Invoices",  icon: FileText },
   { href: "/estimates", label: "Estimates", icon: FileCheck },
+  { href: "/receipts",  label: "Receipts",  icon: Receipt },
+  { href: "/delivery-notes", label: "Delivery notes", icon: Truck },
+  { href: "/recurring", label: "Recurring", icon: Repeat },
   { href: "/clients",   label: "Clients",   icon: Users },
   { href: "/reports",   label: "Reports",   icon: BarChart3 },
   { href: "/settings",  label: "Settings",  icon: Settings },
@@ -32,7 +39,8 @@ export function Sidebar() {
         <Logo />
       </div>
 
-      <div className="px-4 pt-4">
+      <div className="space-y-3 px-4 pt-4">
+        <BusinessSwitcher />
         <Link href="/invoices/new" className="btn-primary w-full">
           <Plus className="h-4 w-4" />
           New invoice
@@ -68,7 +76,7 @@ export function Sidebar() {
 
       <div className="border-t border-ink-100 p-4">
         <a
-          href="https://github.com/Annex-Logistics/invoice"
+          href="https://github.com/Annex-Logistics/invoice-"
           target="_blank"
           rel="noreferrer"
           className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-ink-500 hover:bg-ink-50 hover:text-ink-800"

@@ -6,29 +6,30 @@ Create, preview, and download professional PDF invoices in minutes — all in yo
 
 ## Features
 
-- Dashboard with totals, collected, outstanding and overdue at-a-glance
-- Full invoice editor:
-  - Business branding (name, logo, address, email, phone, website)
-  - Bill-to and optional ship-to parties
-  - Line items with quantity, rate, and auto-calculated amount
-  - Percent or fixed discount, percent or fixed tax, shipping
-  - Amount paid and balance due
-  - Notes and terms
-- 15 built-in currencies
-- Clean PDF export (via jsPDF)
-- Printable preview that matches the PDF
-- Invoice list with filters (draft / sent / paid / overdue) and search
-- Auto-generated clients view compiled from your invoices
+- Invoices, estimates, receipts and delivery notes from one editor
+- Business branding (name, logo, address, email, phone, website), with
+  several businesses in one browser, each with its own numbering
+- Line items, percent or fixed discount and tax, shipping
+- Payment history and balance due; receipts from paid invoices
+- Delivery notes with quantities only and signature lines
+- Recurring invoices (weekly, monthly, quarterly, yearly)
+- Saved clients and a saved-items library
+- Reports by period and currency: billed, collected, outstanding,
+  overdue, tax collected
+- 15 built-in currencies; PDFs embed Inter, so signs like ₦ print correctly
+- Clean PDF export and a print preview that matches it
+- Light and dark themes
 - Export / import a JSON backup of all your data
-- Auto-save as you type
-- Responsive — works on mobile with a bottom nav bar
+- Auto-save as you type; works on mobile
+- No signup, no server, no tracking, no third-party requests
 
 ## Tech
 
-- [Next.js 14](https://nextjs.org/) (App Router) + TypeScript
+- [Next.js 16](https://nextjs.org/) (App Router) + React 19 + TypeScript
 - [Tailwind CSS](https://tailwindcss.com/)
 - [lucide-react](https://lucide.dev/) icons
 - [jsPDF](https://github.com/parallax/jsPDF) for PDF export
+- [Playwright](https://playwright.dev/) for unit and end-to-end tests
 - `localStorage` for persistence
 
 ## Run locally
@@ -38,7 +39,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3100.
 
 ## Build for production
 
@@ -49,7 +50,7 @@ npm start
 
 ## Deploy
 
-AnnexInvoice is a plain Next.js app, so it deploys anywhere Next.js runs — Vercel, Netlify, Cloudflare Pages, a VPS, or a container.
+AnnexInvoice is a Next.js app that renders pages per request (the security policy needs a fresh nonce each time), so it needs a Node host: Vercel, Netlify, a VPS, or a container. A static export is not supported.
 
 Example (Vercel):
 

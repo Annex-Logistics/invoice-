@@ -19,26 +19,32 @@ import {
   FileCheck,
   X,
   CreditCard,
+  Repeat,
+  Receipt,
+  Truck,
 } from "lucide-react";
 import type {
   Invoice,
   LineItem,
   Party,
   Business,
-  DocumentStatus,
   Payment,
   PaymentMethod,
   Client,
+  RecurringSchedule,
 } from "@/lib/types";
 import { CURRENCIES, findCurrency, formatMoney } from "@/lib/currencies";
 import {
   convertEstimateToInvoice,
+  createFromInvoice,
   createId,
   duplicateDocument,
   loadClients,
   loadItems,
+  ownedByCurrent,
   removeDocument,
   saveBusiness,
+  scheduleForInvoice,
   todayISO,
   upsertClient,
   upsertDocument,
@@ -52,14 +58,15 @@ import { LineItemsTable } from "./LineItemsTable";
 import { LogoUpload } from "./LogoUpload";
 import { InvoicePreview } from "./InvoicePreview";
 import { StatusBadge } from "./StatusBadge";
+import { RecurringModal } from "./RecurringModal";
+import { frequencyLabel } from "@/lib/recurring";
+import { docType } from "@/lib/docTypes";
 
 type Props = {
   initialInvoice: Invoice;
   isNew?: boolean;
 };
 
-const INVOICE_STATUS: DocumentStatus[] = ["draft", "sent", "paid", "overdue"];
-const ESTIMATE_STATUS: DocumentStatus[] = ["draft", "sent", "accepted", "declined"];
 
 export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   const router = useRouter();
@@ -71,13 +78,29 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   const [saved, setSaved] = useState<"idle" | "saving" | "saved">("idle");
   const [showLibrary, setShowLibrary] = useState(false);
   const [showClients, setShowClients] = useState(false);
+  const [showRecurring, setShowRecurring] = useState(false);
+  const [schedule, setSchedule] = useState<RecurringSchedule | undefined>(undefined);
 
-  const isEstimate = invoice.kind === "estimate";
-  const listPath = isEstimate ? "/estimates" : "/invoices";
-  const docLabel = isEstimate ? "Estimate" : "Invoice";
-  const statusOptions = isEstimate ? ESTIMATE_STATUS : INVOICE_STATUS;
+  const cfg = docType(invoice.kind);
+  const isEstimate = cfg.kind === "estimate";
+  const isInvoice = cfg.kind === "invoice";
+  const listPath = cfg.path;
+  const docLabel = cfg.label;
+  const statusOptions = cfg.statuses;
 
   const totals = useMemo(() => calcTotals(invoice), [invoice]);
+
+  useEffect(() => {
+    if (docType(initialInvoice.kind).kind === "invoice") {
+      setSchedule(scheduleForInvoice(initialInvoice.id));
+    }
+  }, [initialInvoice.id, initialInvoice.kind]);
+
+  function openRecurring() {
+    // The schedule copies the stored invoice, so make sure it's saved.
+    upsertDocument(invoice);
+    setShowRecurring(true);
+  }
 
   // Auto-save (debounced) — skip the first render so just opening an
   // invoice doesn't bump its updatedAt or flash "Saving...".
@@ -100,7 +123,9 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
     const t = setTimeout(() => {
       upsertDocument(invoice);
       const bizSnapshot = JSON.stringify(invoice.business);
-      if (bizSnapshot !== initialBusinessRef.current) {
+      // Only the active business's settings follow edits made here; a
+      // document from another business keeps its own snapshot.
+      if (bizSnapshot !== initialBusinessRef.current && ownedByCurrent(invoice)) {
         saveBusiness(invoice.business);
         initialBusinessRef.current = bizSnapshot;
       }
@@ -108,7 +133,6 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
       hideTimerRef.current = setTimeout(() => setSaved("idle"), 1200);
     }, 500);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoice]);
 
   useEffect(
@@ -159,6 +183,12 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
     upsertDocument(invoice);
     const created = convertEstimateToInvoice(invoice.id);
     if (created) router.push(`/invoices/${created.id}`);
+  }
+
+  function handleCreateFrom(kind: "receipt" | "delivery-note") {
+    upsertDocument(invoice);
+    const created = createFromInvoice(invoice.id, kind);
+    if (created) router.push(`${docType(kind).path}/${created.id}`);
   }
 
   function handleDuplicate() {
@@ -220,6 +250,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
   function pickClient(client: Client) {
     setInvoice((prev) => ({
       ...prev,
+      clientId: client.id,
       billTo: {
         name: client.name,
         email: client.email,
@@ -236,13 +267,15 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
       alert("Fill at least a name or email before saving as a client.");
       return;
     }
+    const id = createId();
     upsertClient({
-      id: createId(),
+      id,
       name: b.name.trim(),
       email: b.email.trim(),
       phone: b.phone.trim(),
       address: b.address.trim(),
     });
+    setInvoice((prev) => ({ ...prev, clientId: id }));
     alert("Client saved to your client list.");
   }
 
@@ -275,6 +308,15 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                 {isNew ? `New ${docLabel.toLowerCase()}` : `Edit ${invoice.number}`}
               </h1>
               <StatusBadge status={invoice.status} />
+              {invoice.recurringId && (
+                <Link
+                  href="/recurring"
+                  className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand-700"
+                  title="Created by a recurring schedule"
+                >
+                  <Repeat className="h-3 w-3" /> Recurring
+                </Link>
+              )}
             </div>
             <div className="text-xs text-ink-500">
               {saved === "saving" && "Saving..."}
@@ -302,7 +344,13 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
               <FileCheck className="h-4 w-4" /> Convert to invoice
             </button>
           )}
-          {!isEstimate && (
+          {isInvoice && (
+            <button className="btn-secondary" onClick={openRecurring}>
+              <Repeat className="h-4 w-4" />
+              {schedule ? `Repeats ${frequencyLabel(schedule.frequency).toLowerCase()}` : "Repeat"}
+            </button>
+          )}
+          {isInvoice && (
             <button className="btn-primary" onClick={handleMarkSent}>
               <Send className="h-4 w-4" /> Mark as sent
             </button>
@@ -356,20 +404,25 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                     value={invoice.number}
                     onChange={(e) => patch("number", e.target.value)} />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className={cfg.dueLabel ? "grid grid-cols-2 gap-2" : ""}>
                   <div>
-                    <label className="label">Issue</label>
+                    <label className="label">{cfg.dueLabel ? "Issue" : "Date"}</label>
                     <input type="date" className="field"
                       value={invoice.issueDate}
                       onChange={(e) => patch("issueDate", e.target.value)} />
                   </div>
-                  <div>
-                    <label className="label">{isEstimate ? "Valid until" : "Due"}</label>
-                    <input type="date" className="field"
-                      value={invoice.dueDate}
-                      onChange={(e) => patch("dueDate", e.target.value)} />
-                  </div>
+                  {cfg.dueLabel && (
+                    <div>
+                      <label className="label">{cfg.dueLabel}</label>
+                      <input type="date" className="field"
+                        value={invoice.dueDate}
+                        onChange={(e) => patch("dueDate", e.target.value)} />
+                    </div>
+                  )}
                 </div>
+                {invoice.sourceNumber && (
+                  <p className="text-xs text-ink-500">For invoice {invoice.sourceNumber}</p>
+                )}
                 <div>
                   <label className="label">PO #</label>
                   <input className="field" maxLength={64}
@@ -385,7 +438,23 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
             <div className="grid gap-5 md:grid-cols-2">
               <div>
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-ink-900">Bill To</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-ink-900">{cfg.partyLabel}</h3>
+                    {invoice.clientId && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand-700">
+                        Saved client
+                        <button
+                          type="button"
+                          onClick={() => setInvoice((prev) => ({ ...prev, clientId: undefined }))}
+                          className="rounded-full hover:text-brand-900"
+                          aria-label="Unlink saved client"
+                          title="Stop attributing this document to the saved client"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 text-xs">
                     <button
                       type="button"
@@ -495,12 +564,13 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
               items={invoice.items}
               currency={invoice.currency}
               onChange={setItems}
+              showPrices={cfg.prices}
             />
           </section>
 
           {/* Notes + Totals */}
           <section className="grid gap-5 md:grid-cols-5">
-            <div className="md:col-span-3 space-y-4">
+            <div className={(cfg.prices ? "md:col-span-3" : "md:col-span-5") + " space-y-4"}>
               <div>
                 <label className="label">Notes</label>
                 <textarea
@@ -525,6 +595,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
               </div>
             </div>
 
+            {cfg.prices && (
             <div className="md:col-span-2">
               <div className="card p-5">
                 <TotalRow
@@ -573,7 +644,7 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                   </span>
                 </div>
 
-                {!isEstimate && (
+                {cfg.payments && (
                   <>
                     <div className="mt-3 flex items-baseline justify-between">
                       <span className="text-sm text-ink-600">Amount paid</span>
@@ -592,10 +663,11 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                 )}
               </div>
             </div>
+            )}
           </section>
 
           {/* Payments */}
-          {!isEstimate && (
+          {cfg.payments && (
             <section className="card p-5">
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -678,8 +750,10 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
         </div>
 
         {/* Right rail */}
-        <aside className="hidden lg:block">
-          <div className="sticky top-6 space-y-4">
+        {/* Below the form on small screens (it used to be hidden there,
+            leaving no way to change status or duplicate on a phone). */}
+        <aside>
+          <div className="space-y-4 lg:sticky lg:top-6">
             <div className="card p-4">
               <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-500">
                 Status
@@ -722,6 +796,16 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
                     <Copy className="h-4 w-4" /> Duplicate
                   </button>
                 )}
+                {isInvoice && !isNew && (
+                  <>
+                    <button className="btn-secondary w-full" onClick={() => handleCreateFrom("receipt")}>
+                      <Receipt className="h-4 w-4" /> Create receipt
+                    </button>
+                    <button className="btn-secondary w-full" onClick={() => handleCreateFrom("delivery-note")}>
+                      <Truck className="h-4 w-4" /> Create delivery note
+                    </button>
+                  </>
+                )}
                 <button className="btn-primary w-full" onClick={() => upsertDocument(invoice)}>
                   <Save className="h-4 w-4" /> Save
                 </button>
@@ -753,6 +837,15 @@ export function InvoiceEditor({ initialInvoice, isNew = false }: Props) {
           onClose={() => setShowLibrary(false)}
           onPick={insertLibraryItem}
           currencySymbol={invoice.currency.symbol}
+        />
+      )}
+
+      {showRecurring && (
+        <RecurringModal
+          source={invoice}
+          existing={schedule}
+          onClose={() => setShowRecurring(false)}
+          onChange={setSchedule}
         />
       )}
 

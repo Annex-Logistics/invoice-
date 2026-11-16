@@ -6,7 +6,7 @@ import { Plus, Search, FileText } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { Invoice, DocumentStatus } from "@/lib/types";
-import { loadEstimates } from "@/lib/storage";
+import { loadCurrentEstimates } from "@/lib/storage";
 import { calcTotals } from "@/lib/totals";
 import { formatMoney } from "@/lib/currencies";
 
@@ -24,7 +24,7 @@ export default function EstimatesPage() {
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    setEstimates(loadEstimates());
+    setEstimates(loadCurrentEstimates());
   }, []);
 
   const filtered = useMemo(() => {

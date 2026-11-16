@@ -5,46 +5,61 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, FileText, Plus, TrendingUp, Wallet, Clock } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { formatMoney } from "@/lib/currencies";
+import { DEFAULT_CURRENCY, formatMoney } from "@/lib/currencies";
+import { currenciesByUse, summarize } from "@/lib/reports";
 import { calcTotals } from "@/lib/totals";
 import type { Invoice } from "@/lib/types";
-import { loadInvoices, saveInvoices, saveBusiness, loadBusiness, todayISO } from "@/lib/storage";
+import {
+  getCurrentBusinessId,
+  loadBusiness,
+  loadCurrentInvoices,
+  loadInvoices,
+  saveBusiness,
+  saveInvoices,
+  todayISO,
+} from "@/lib/storage";
 import { sampleInvoices } from "@/lib/sample";
 
 export default function DashboardPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
 
   useEffect(() => {
-    setInvoices(loadInvoices());
+    setInvoices(loadCurrentInvoices());
   }, []);
 
   function loadSample() {
     const biz = loadBusiness();
     const samples = sampleInvoices();
     if (!biz.name) saveBusiness(samples[0].business);
-    saveInvoices(samples);
-    setInvoices(samples);
+    // Add to this business only; never touch other businesses' invoices.
+    const businessId = getCurrentBusinessId();
+    const stamped = samples.map((s) => ({ ...s, businessId }));
+    const others = loadInvoices().filter((i) => i.businessId && i.businessId !== businessId);
+    saveInvoices([...stamped, ...others]);
+    setInvoices(stamped);
   }
 
+  // Money tiles cover the most-used currency only: amounts in different
+  // currencies can't be added up. Reports lets you pick the others.
+  const currencies = useMemo(() => currenciesByUse(invoices), [invoices]);
+  const displayCurrency = currencies[0] ?? DEFAULT_CURRENCY;
   const stats = useMemo(() => {
-    let totalInvoiced = 0;
-    let totalPaid = 0;
-    let totalOutstanding = 0;
-    let overdueCount = 0;
     const today = todayISO();
+    const s = summarize(
+      invoices.filter((inv) => inv.currency.code === displayCurrency.code),
+      today
+    );
+    const overdueCount = invoices.filter(
+      (inv) => inv.status !== "paid" && inv.dueDate && inv.dueDate < today
+    ).length;
+    return {
+      totalInvoiced: s.invoiced,
+      totalPaid: s.collected,
+      totalOutstanding: s.outstanding,
+      overdueCount,
+    };
+  }, [invoices, displayCurrency.code]);
 
-    invoices.forEach((inv) => {
-      const t = calcTotals(inv);
-      totalInvoiced += t.total;
-      totalPaid += inv.amountPaid;
-      if (inv.status !== "paid") totalOutstanding += t.balanceDue;
-      if (inv.status !== "paid" && inv.dueDate && inv.dueDate < today) overdueCount++;
-    });
-
-    return { totalInvoiced, totalPaid, totalOutstanding, overdueCount };
-  }, [invoices]);
-
-  const displayCurrency = invoices[0]?.currency ?? { code: "USD", symbol: "$", name: "US Dollar" };
   const recent = invoices.slice(0, 5);
 
   return (
@@ -53,7 +68,12 @@ export default function DashboardPage() {
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-ink-900">Dashboard</h1>
-            <p className="text-sm text-ink-500">A quick look at your billing activity.</p>
+            <p className="text-sm text-ink-500">
+              A quick look at your billing activity.
+              {currencies.length > 1 && (
+                <> Amounts are in {displayCurrency.code}; see Reports for other currencies.</>
+              )}
+            </p>
           </div>
           <Link href="/invoices/new" className="btn-primary">
             <Plus className="h-4 w-4" />

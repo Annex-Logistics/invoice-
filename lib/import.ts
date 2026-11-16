@@ -1,6 +1,19 @@
-import type { Business, Invoice, InvoicePrefs, SavedItem } from "./types";
+import type {
+  Business,
+  BusinessProfile,
+  Client,
+  DocumentKind,
+  Invoice,
+  InvoicePrefs,
+  Payment,
+  PaymentMethod,
+  RecurringFrequency,
+  RecurringSchedule,
+  SavedItem,
+} from "./types";
 import { defaultPrefs, emptyBusiness } from "./storage";
 import { findCurrency } from "./currencies";
+import { docType } from "./docTypes";
 
 // A deliberately conservative parser for backup JSON. Everything is
 // coerced to the expected shape and length, and any `__proto__` /
@@ -14,6 +27,13 @@ export type BackupParseResult = {
   prefs?: InvoicePrefs;
   items?: SavedItem[];
   invoices?: Invoice[];
+  estimates?: Invoice[];
+  receipts?: Invoice[];
+  deliveryNotes?: Invoice[];
+  clients?: Client[];
+  recurring?: RecurringSchedule[];
+  businesses?: BusinessProfile[];
+  currentBusinessId?: string;
   warnings: string[];
 };
 
@@ -22,11 +42,17 @@ const MAX_LONG_STR = 20000; // notes, terms, address
 const MAX_LOGO = 2 * 1024 * 1024; // 2 MB base64 data URL
 const MAX_ITEMS = 500;
 const MAX_INVOICES = 5000;
+const MAX_CLIENTS = 5000;
+const MAX_PAYMENTS = 500;
+
+const PAYMENT_METHODS: PaymentMethod[] = [
+  "cash", "card", "bank-transfer", "check", "paypal", "stripe", "other",
+];
+const DATE_LIKE = /^\d{4}-\d{2}-\d{2}$/;
 
 function clean(s: unknown, max = MAX_STR): string {
   if (typeof s !== "string") return "";
   // Strip unprintable control chars (except tab/newline) and clip length.
-  // eslint-disable-next-line no-control-regex
   return s.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, "").slice(0, max);
 }
 
@@ -79,6 +105,51 @@ function parsePrefs(raw: unknown): InvoicePrefs {
     defaultTaxPercent: Math.max(0, num(o.defaultTaxPercent, base.defaultTaxPercent)),
     defaultCurrencyCode: clean(o.defaultCurrencyCode, 8) || base.defaultCurrencyCode,
     defaultDueDays: Math.max(0, Math.floor(num(o.defaultDueDays, base.defaultDueDays))),
+    estimateNumberPrefix: clean(o.estimateNumberPrefix, 32) || base.estimateNumberPrefix,
+    estimateNextNumber: Math.max(1, Math.floor(num(o.estimateNextNumber, base.estimateNextNumber ?? 1))),
+    estimateNumberPadding: Math.min(
+      10,
+      Math.max(1, Math.floor(num(o.estimateNumberPadding, base.estimateNumberPadding ?? 4)))
+    ),
+    estimateDefaultValidDays: Math.max(
+      0,
+      Math.floor(num(o.estimateDefaultValidDays, base.estimateDefaultValidDays ?? 30))
+    ),
+    estimateDefaultTerms: clean(o.estimateDefaultTerms, MAX_LONG_STR) || base.estimateDefaultTerms,
+  };
+}
+
+function parseClient(raw: unknown): Client | null {
+  const o = strip(raw);
+  const name = clean(o.name);
+  const email = clean(o.email, 320);
+  if (!name && !email) return null;
+  const notes = clean(o.notes, MAX_LONG_STR);
+  return {
+    id: clean(o.id, 64) || crypto.randomUUID(),
+    name,
+    email,
+    phone: clean(o.phone, 64),
+    address: clean(o.address, MAX_LONG_STR),
+    ...(notes ? { notes } : {}),
+  };
+}
+
+function parsePayment(raw: unknown): Payment | null {
+  const o = strip(raw);
+  const amount = num(o.amount, NaN);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  const date = typeof o.date === "string" && DATE_LIKE.test(o.date) ? o.date : "";
+  if (!date) return null;
+  const method = PAYMENT_METHODS.includes(o.method as PaymentMethod)
+    ? (o.method as PaymentMethod)
+    : "other";
+  return {
+    id: clean(o.id, 64) || crypto.randomUUID(),
+    date,
+    amount,
+    method,
+    note: clean(o.note, 500),
   };
 }
 
@@ -93,7 +164,7 @@ function parseItem(raw: unknown): SavedItem | null {
   };
 }
 
-function parseInvoice(raw: unknown): Invoice | null {
+function parseInvoice(raw: unknown, kind: DocumentKind): Invoice | null {
   const o = strip(raw);
   const id = clean(o.id, 64);
   if (!id) return null;
@@ -113,9 +184,8 @@ function parseInvoice(raw: unknown): Invoice | null {
     : [];
 
   const currency = findCurrency(clean(strip(o.currency).code, 8));
-  const status = (["draft", "sent", "paid", "overdue"] as const).includes(
-    (o.status as never) ?? "draft"
-  )
+  const allowedStatuses: readonly string[] = docType(kind).statuses;
+  const status = allowedStatuses.includes(o.status as string)
     ? (o.status as Invoice["status"])
     : "draft";
   const discountMode = (o.discountMode === "fixed" ? "fixed" : "percent") as Invoice["discountMode"];
@@ -131,12 +201,15 @@ function parseInvoice(raw: unknown): Invoice | null {
     };
   };
 
-  const dateLike = /^\d{4}-\d{2}-\d{2}$/;
-  const issueDate = typeof o.issueDate === "string" && dateLike.test(o.issueDate) ? o.issueDate : "";
-  const dueDate = typeof o.dueDate === "string" && dateLike.test(o.dueDate) ? o.dueDate : "";
+  const issueDate = typeof o.issueDate === "string" && DATE_LIKE.test(o.issueDate) ? o.issueDate : "";
+  const dueDate = typeof o.dueDate === "string" && DATE_LIKE.test(o.dueDate) ? o.dueDate : "";
+  const payments = Array.isArray(o.payments)
+    ? (o.payments.slice(0, MAX_PAYMENTS).map(parsePayment).filter(Boolean) as Payment[])
+    : [];
 
   return {
     id,
+    kind,
     number: clean(o.number, 64),
     status,
     createdAt: clean(o.createdAt, 64) || new Date().toISOString(),
@@ -159,7 +232,63 @@ function parseInvoice(raw: unknown): Invoice | null {
     notes: clean(o.notes, MAX_LONG_STR),
     terms: clean(o.terms, MAX_LONG_STR),
     amountPaid: Math.max(0, num(o.amountPaid)),
+    ...(payments.length ? { payments } : {}),
+    ...(clean(o.clientId, 64) ? { clientId: clean(o.clientId, 64) } : {}),
+    ...(clean(o.recurringId, 64) ? { recurringId: clean(o.recurringId, 64) } : {}),
+    ...(clean(o.businessId, 64) ? { businessId: clean(o.businessId, 64) } : {}),
+    ...(clean(o.sourceNumber, 64) ? { sourceNumber: clean(o.sourceNumber, 64) } : {}),
   };
+}
+
+function parseProfile(raw: unknown): BusinessProfile | null {
+  const o = strip(raw);
+  const id = clean(o.id, 64);
+  if (!id) return null;
+  return {
+    id,
+    business: parseBusiness(o.business),
+    prefs: parsePrefs(o.prefs),
+    counter: Math.max(0, Math.floor(num(o.counter))),
+    estimateCounter: Math.max(0, Math.floor(num(o.estimateCounter))),
+  };
+}
+
+const FREQS: RecurringFrequency[] = ["weekly", "monthly", "quarterly", "yearly"];
+
+function parseSchedule(raw: unknown): RecurringSchedule | null {
+  const o = strip(raw);
+  const id = clean(o.id, 64);
+  const sourceInvoiceId = clean(o.sourceInvoiceId, 64);
+  const startDate = typeof o.startDate === "string" && DATE_LIKE.test(o.startDate) ? o.startDate : "";
+  if (!id || !sourceInvoiceId || !startDate) return null;
+  if (!FREQS.includes(o.frequency as RecurringFrequency)) return null;
+  const endDate = typeof o.endDate === "string" && DATE_LIKE.test(o.endDate) ? o.endDate : "";
+  const lastRunDate =
+    typeof o.lastRunDate === "string" && DATE_LIKE.test(o.lastRunDate) ? o.lastRunDate : "";
+  return {
+    id,
+    sourceInvoiceId,
+    frequency: o.frequency as RecurringFrequency,
+    startDate,
+    ...(endDate ? { endDate } : {}),
+    runCount: Math.max(0, Math.floor(num(o.runCount))),
+    active: o.active === true,
+    createdAt: clean(o.createdAt, 64) || new Date().toISOString(),
+    ...(lastRunDate ? { lastRunDate } : {}),
+    ...(o.problem === "source-missing" ? { problem: "source-missing" as const } : {}),
+  };
+}
+
+function parseDocs(raw: unknown, kind: DocumentKind, label: string, warnings: string[]): Invoice[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const parsed = raw
+    .slice(0, MAX_INVOICES)
+    .map((r) => parseInvoice(r, kind))
+    .filter(Boolean) as Invoice[];
+  if (parsed.length !== raw.length) {
+    warnings.push(`Skipped ${raw.length - parsed.length} invalid ${label}(s).`);
+  }
+  return parsed;
 }
 
 export function parseBackup(text: string): BackupParseResult {
@@ -188,18 +317,51 @@ export function parseBackup(text: string): BackupParseResult {
     result.items = parsed;
   }
 
-  if (Array.isArray(d.invoices)) {
-    const parsed = d.invoices
-      .slice(0, MAX_INVOICES)
-      .map(parseInvoice)
-      .filter(Boolean) as Invoice[];
-    if (parsed.length !== d.invoices.length) {
-      warnings.push(`Skipped ${d.invoices.length - parsed.length} invalid invoice(s).`);
+  result.invoices = parseDocs(d.invoices, "invoice", "invoice", warnings);
+  result.estimates = parseDocs(d.estimates, "estimate", "estimate", warnings);
+  result.receipts = parseDocs(d.receipts, "receipt", "receipt", warnings);
+  result.deliveryNotes = parseDocs(d.deliveryNotes, "delivery-note", "delivery note", warnings);
+
+  if (Array.isArray(d.clients)) {
+    const parsed = d.clients.slice(0, MAX_CLIENTS).map(parseClient).filter(Boolean) as Client[];
+    if (parsed.length !== d.clients.length) {
+      warnings.push(`Skipped ${d.clients.length - parsed.length} invalid client(s).`);
     }
-    result.invoices = parsed;
+    result.clients = parsed;
   }
 
-  if (!result.business && !result.prefs && !result.items && !result.invoices) {
+  if (Array.isArray(d.recurring)) {
+    const parsed = d.recurring.slice(0, MAX_CLIENTS).map(parseSchedule).filter(Boolean) as RecurringSchedule[];
+    if (parsed.length !== d.recurring.length) {
+      warnings.push(`Skipped ${d.recurring.length - parsed.length} invalid recurring schedule(s).`);
+    }
+    result.recurring = parsed;
+  }
+
+  if (Array.isArray(d.businesses)) {
+    const parsed = d.businesses.slice(0, 100).map(parseProfile).filter(Boolean) as BusinessProfile[];
+    if (parsed.length !== d.businesses.length) {
+      warnings.push(`Skipped ${d.businesses.length - parsed.length} invalid business(es).`);
+    }
+    if (parsed.length) {
+      result.businesses = parsed;
+      const cur = clean(d.currentBusinessId, 64);
+      if (cur && parsed.some((p) => p.id === cur)) result.currentBusinessId = cur;
+    }
+  }
+
+  if (
+    !result.receipts &&
+    !result.deliveryNotes &&
+    !result.businesses &&
+    !result.recurring &&
+    !result.business &&
+    !result.prefs &&
+    !result.items &&
+    !result.invoices &&
+    !result.estimates &&
+    !result.clients
+  ) {
     throw new Error("Backup is empty or doesn't contain any known data.");
   }
 

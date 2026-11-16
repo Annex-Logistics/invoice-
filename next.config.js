@@ -5,7 +5,7 @@ const nextConfig = {
 
   async headers() {
     // Static response headers. Content-Security-Policy is emitted by
-    // `middleware.ts` instead, because it needs a per-request nonce so
+    // `proxy.ts` instead, because it needs a per-request nonce so
     // we can drop 'unsafe-inline' from script-src.
     return [
       {

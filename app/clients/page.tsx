@@ -8,11 +8,12 @@ import type { Client, Invoice } from "@/lib/types";
 import {
   createId,
   loadClients,
-  loadInvoices,
+  loadCurrentInvoices,
   removeClient,
   upsertClient,
 } from "@/lib/storage";
 import { calcTotals } from "@/lib/totals";
+import { matchClient } from "@/lib/clients";
 import { formatMoney } from "@/lib/currencies";
 
 type ClientStats = {
@@ -30,7 +31,7 @@ export default function ClientsPage() {
 
   useEffect(() => {
     setClients(loadClients());
-    setInvoices(loadInvoices());
+    setInvoices(loadCurrentInvoices());
   }, []);
 
   const stats = useMemo(() => {
@@ -38,13 +39,9 @@ export default function ClientsPage() {
     for (const client of clients) {
       map.set(client.id, { invoiceCount: 0, totalBilled: 0, totalOutstanding: 0 });
     }
-    // Attribute invoices to clients by email first, then name.
+    // Attribute by stored clientId, falling back to email then name.
     for (const inv of invoices) {
-      const match =
-        clients.find(
-          (c) => c.email && c.email.toLowerCase() === inv.billTo.email.toLowerCase()
-        ) ??
-        clients.find((c) => c.name && c.name.toLowerCase() === inv.billTo.name.toLowerCase());
+      const match = matchClient(inv, clients);
       if (!match) continue;
       const totals = calcTotals(inv);
       const bucket = map.get(match.id)!;

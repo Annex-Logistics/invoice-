@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Search, FileText } from "lucide-react";
+import { Plus, Search, FileText, Repeat } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { Invoice, InvoiceStatus } from "@/lib/types";
-import { loadInvoices } from "@/lib/storage";
+import { loadCurrentInvoices } from "@/lib/storage";
 import { calcTotals } from "@/lib/totals";
 import { formatMoney } from "@/lib/currencies";
 
@@ -24,7 +24,7 @@ export default function InvoicesPage() {
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    setInvoices(loadInvoices());
+    setInvoices(loadCurrentInvoices());
   }, []);
 
   const filtered = useMemo(() => {
@@ -52,10 +52,16 @@ export default function InvoicesPage() {
               {invoices.length} total · {invoices.filter((i) => i.status !== "paid").length} open
             </p>
           </div>
-          <Link href="/invoices/new" className="btn-primary">
-            <Plus className="h-4 w-4" />
-            New invoice
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/recurring" className="btn-secondary">
+              <Repeat className="h-4 w-4" />
+              Recurring
+            </Link>
+            <Link href="/invoices/new" className="btn-primary">
+              <Plus className="h-4 w-4" />
+              New invoice
+            </Link>
+          </div>
         </div>
 
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

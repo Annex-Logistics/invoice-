@@ -35,6 +35,8 @@ export function KeyboardShortcuts() {
             if (ev.key === "c") router.push("/clients");
             if (ev.key === "r") router.push("/reports");
             if (ev.key === "s") router.push("/settings");
+            if (ev.key === "p") router.push("/receipts");
+            if (ev.key === "t") router.push("/delivery-notes");
             window.removeEventListener("keydown", next);
           };
           window.addEventListener("keydown", next);
